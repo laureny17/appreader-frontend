@@ -3,19 +3,24 @@ import { ref, computed, readonly } from "vue";
 import { api, ApiError } from "@/services/api";
 
 export interface Application {
-  id: string;
-  content: string;
-  assignments?: Array<{ assignment: string; reviewer: string }>;
-  reviews?: Array<{
-    record: string;
-    reviewer: string;
-    score: number;
-    comment: string;
-  }>;
+  _id: string;
+  event: string;
+  applicantID: string;
+  applicantYear: string;
+  answers: string[];
+}
+
+export interface Assignment {
+  _id: string;
+  user: string;
+  application: string;
+  startTime: string;
+  event: string;
 }
 
 export const useApplicationsStore = defineStore("applications", () => {
-  const applications = ref<Application[]>([]);
+  const currentApplication = ref<Application | null>(null);
+  const currentAssignment = ref<Assignment | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
 
@@ -27,193 +32,121 @@ export const useApplicationsStore = defineStore("applications", () => {
     error.value = null;
   };
 
-  const addApplication = (application: Application) => {
-    const existingIndex = applications.value.findIndex(
-      (app) => app.id === application.id
-    );
-    if (existingIndex >= 0) {
-      applications.value[existingIndex] = application;
-    } else {
-      applications.value.push(application);
-    }
-  };
-
-  const removeApplication = (applicationId: string) => {
-    applications.value = applications.value.filter(
-      (app) => app.id !== applicationId
-    );
-  };
-
-  const updateApplicationContent = (applicationId: string, content: string) => {
-    const application = applications.value.find(
-      (app) => app.id === applicationId
-    );
-    if (application) {
-      application.content = content;
-    }
-  };
-
-  const updateApplicationAssignments = (
-    applicationId: string,
-    assignments: Array<{ assignment: string; reviewer: string }>
-  ) => {
-    const application = applications.value.find(
-      (app) => app.id === applicationId
-    );
-    if (application) {
-      application.assignments = assignments;
-    }
-  };
-
-  const updateApplicationReviews = (
-    applicationId: string,
-    reviews: Array<{
-      record: string;
-      reviewer: string;
-      score: number;
-      comment: string;
-    }>
-  ) => {
-    const application = applications.value.find(
-      (app) => app.id === applicationId
-    );
-    if (application) {
-      application.reviews = reviews;
-    }
-  };
-
-  const saveApplication = async (applicationId: string, content: string) => {
+  const getNextApplication = async (userId: string, eventId: string) => {
     isLoading.value = true;
     error.value = null;
 
     try {
-      await api.applicationStorage.put(applicationId, content);
-      updateApplicationContent(applicationId, content);
-    } catch (err) {
-      const errorMessage =
-        err instanceof ApiError ? err.message : "Failed to save application";
-      setError(errorMessage);
-      throw err;
-    } finally {
-      isLoading.value = false;
-    }
-  };
-
-  const deleteApplication = async (applicationId: string) => {
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      await api.applicationStorage.delete(applicationId);
-      removeApplication(applicationId);
-    } catch (err) {
-      const errorMessage =
-        err instanceof ApiError ? err.message : "Failed to delete application";
-      setError(errorMessage);
-      throw err;
-    } finally {
-      isLoading.value = false;
-    }
-  };
-
-  const loadApplication = async (applicationId: string) => {
-    isLoading.value = true;
-    error.value = null;
-
-    try {
-      const response = await api.applicationStorage.get(applicationId);
-      const application: Application = {
-        id: applicationId,
-        content: response[0]?.content || "",
-      };
-      addApplication(application);
-      return application;
-    } catch (err) {
-      const errorMessage =
-        err instanceof ApiError ? err.message : "Failed to load application";
-      setError(errorMessage);
-      throw err;
-    } finally {
-      isLoading.value = false;
-    }
-  };
-
-  const loadAssignments = async (applicationId: string) => {
-    try {
-      const assignments = await api.applicationAssignments.getAssignments(
-        applicationId
+      const response = await api.applications.getNextApplication(
+        userId,
+        eventId
       );
-      updateApplicationAssignments(applicationId, assignments);
-      return assignments;
-    } catch (err) {
-      console.error("Failed to load assignments:", err);
-      return [];
-    }
-  };
+      currentAssignment.value = response.assignment;
 
-  const loadReviews = async (applicationId: string) => {
-    try {
-      const reviews = await api.reviewRecords.listForApplication(applicationId);
-      updateApplicationReviews(applicationId, reviews);
-      return reviews;
-    } catch (err) {
-      console.error("Failed to load reviews:", err);
-      return [];
-    }
-  };
+      // Fetch the actual application details
+      const appResponse = await api.applications.getApplication(
+        response.assignment.application
+      );
+      if (appResponse && appResponse.length > 0) {
+        currentApplication.value = appResponse[0];
+      }
 
-  const assignApplication = async (
-    applicationId: string,
-    reviewerId: string
-  ) => {
-    try {
-      await api.applicationAssignments.assign(applicationId, reviewerId);
-      await loadAssignments(applicationId);
-    } catch (err) {
-      const errorMessage =
-        err instanceof ApiError ? err.message : "Failed to assign application";
-      setError(errorMessage);
-      throw err;
-    }
-  };
-
-  const unassignApplication = async (
-    applicationId: string,
-    reviewerId: string
-  ) => {
-    try {
-      await api.applicationAssignments.unassign(applicationId, reviewerId);
-      await loadAssignments(applicationId);
+      return {
+        assignment: response.assignment,
+        application: currentApplication.value,
+      };
     } catch (err) {
       const errorMessage =
         err instanceof ApiError
           ? err.message
-          : "Failed to unassign application";
+          : "Failed to get next application";
+      setError(errorMessage);
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  const submitReview = async (
+    author: string,
+    application: string,
+    scores: Record<string, number>
+  ) => {
+    try {
+      const currentTime = new Date().toISOString();
+      const reviewResponse = await api.applications.submitReview(
+        author,
+        application,
+        currentTime
+      );
+
+      // Set scores for each criterion
+      for (const [criterion, value] of Object.entries(scores)) {
+        await api.applications.setScore(
+          author,
+          reviewResponse.review,
+          criterion,
+          value
+        );
+      }
+
+      return reviewResponse;
+    } catch (err) {
+      const errorMessage =
+        err instanceof ApiError ? err.message : "Failed to submit review";
       setError(errorMessage);
       throw err;
     }
   };
 
+  const skipApplication = async (user: string, assignment: Assignment) => {
+    try {
+      await api.applications.skipAssignment(user, assignment);
+      currentApplication.value = null;
+      currentAssignment.value = null;
+    } catch (err) {
+      const errorMessage =
+        err instanceof ApiError ? err.message : "Failed to skip application";
+      setError(errorMessage);
+      throw err;
+    }
+  };
+
+  const completeApplication = async (user: string, assignment: Assignment) => {
+    try {
+      const endTime = new Date().toISOString();
+      await api.applications.submitAndIncrement(user, assignment, endTime);
+      currentApplication.value = null;
+      currentAssignment.value = null;
+    } catch (err) {
+      const errorMessage =
+        err instanceof ApiError
+          ? err.message
+          : "Failed to complete application";
+      setError(errorMessage);
+      throw err;
+    }
+  };
+
+  const clearCurrentApplication = () => {
+    currentApplication.value = null;
+    currentAssignment.value = null;
+  };
+
   return {
     // State
-    applications: readonly(applications),
+    currentApplication: readonly(currentApplication),
+    currentAssignment: readonly(currentAssignment),
     isLoading: readonly(isLoading),
     error: readonly(error),
 
     // Actions
     setError,
     clearError,
-    addApplication,
-    removeApplication,
-    updateApplicationContent,
-    updateApplicationAssignments,
-    updateApplicationReviews,
-    saveApplication,
-    deleteApplication,
-    loadApplication,
-    loadAssignments,
-    loadReviews,
-    assignApplication,
-    unassignApplication,
+    getNextApplication,
+    submitReview,
+    skipApplication,
+    completeApplication,
+    clearCurrentApplication,
   };
 });

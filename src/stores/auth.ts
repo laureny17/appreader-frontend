@@ -4,7 +4,27 @@ import { api, ApiError } from "@/services/api";
 
 export interface User {
   id: string;
-  username: string;
+  email: string;
+  name: string;
+  isAdmin: boolean;
+}
+
+export interface Event {
+  eventId: string;
+  name: string;
+  description: string;
+  startTime: number;
+  endTime: number;
+  endDate?: string;
+}
+
+export interface RubricDimension {
+  id: string;
+  name: string;
+  description: string;
+  scaleMin: number;
+  scaleMax: number;
+  scoringGuidelines: string[];
 }
 
 export const useAuthStore = defineStore("auth", () => {
@@ -13,7 +33,9 @@ export const useAuthStore = defineStore("auth", () => {
   const error = ref<string | null>(null);
 
   const isAuthenticated = computed(() => user.value !== null);
-  const username = computed(() => user.value?.username || "");
+  const email = computed(() => user.value?.email || "");
+  const name = computed(() => user.value?.name || "");
+  const userId = computed(() => user.value?.id || "");
 
   const setUser = (userData: User) => {
     user.value = userData;
@@ -33,15 +55,17 @@ export const useAuthStore = defineStore("auth", () => {
     error.value = null;
   };
 
-  const register = async (username: string, password: string) => {
+  const register = async (name: string, email: string, password: string) => {
     isLoading.value = true;
     error.value = null;
 
     try {
-      const response = await api.auth.register(username, password);
+      const response = await api.auth.register(name, email, password);
       const userData: User = {
         id: response.user,
-        username: username,
+        email: email,
+        name: name,
+        isAdmin: false,
       };
       setUser(userData);
       return userData;
@@ -55,19 +79,45 @@ export const useAuthStore = defineStore("auth", () => {
     }
   };
 
-  const login = async (username: string, password: string) => {
+  const login = async (email: string, password: string) => {
     isLoading.value = true;
     error.value = null;
 
+    console.log("Attempting login with:", { email, password });
+
     try {
-      const response = await api.auth.login(username, password);
+      const response = await api.auth.login(email, password);
+      console.log("Login response:", response);
+
+      // Try to fetch user details to get name, but don't fail if it doesn't work
+      let userName = email; // Default to email if we can't get the name
+      try {
+        const accountDetails = await api.auth.getAccountByUserId(response.user);
+        console.log("Account details:", accountDetails);
+
+        // Handle array response (as per new API spec)
+        if (
+          accountDetails &&
+          Array.isArray(accountDetails) &&
+          accountDetails.length > 0
+        ) {
+          userName = accountDetails[0]?.name || email;
+        }
+      } catch (nameError) {
+        console.warn("Could not fetch user name, using email:", nameError);
+        // Continue with email as name
+      }
+
       const userData: User = {
         id: response.user,
-        username: username,
+        email: email,
+        name: userName,
+        isAdmin: false, // Would be determined by backend
       };
       setUser(userData);
       return userData;
     } catch (err) {
+      console.error("Login error:", err);
       const errorMessage =
         err instanceof ApiError ? err.message : "Login failed";
       setError(errorMessage);
@@ -99,7 +149,9 @@ export const useAuthStore = defineStore("auth", () => {
 
     // Computed
     isAuthenticated,
-    username,
+    email,
+    name,
+    userId,
 
     // Actions
     setUser,

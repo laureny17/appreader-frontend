@@ -1,17 +1,19 @@
 <template>
   <div class="login-form">
     <div class="form-container">
-      <h2>Login</h2>
+      <div class="logo">LOGO</div>
+      <h1>APPREADER</h1>
+
       <form @submit.prevent="handleLogin">
         <div class="form-group">
-          <label for="username">Username</label>
+          <label for="email">Email</label>
           <input
-            id="username"
-            v-model="username"
-            type="text"
+            id="email"
+            v-model="email"
+            type="email"
             required
             :disabled="isLoading"
-            placeholder="Enter your username"
+            placeholder="Enter your email"
           />
         </div>
 
@@ -32,14 +34,14 @@
         </div>
 
         <button type="submit" :disabled="isLoading" class="btn btn-primary">
-          {{ isLoading ? "Logging in..." : "Login" }}
+          {{ isLoading ? "Logging in..." : "LOG IN" }}
         </button>
       </form>
 
       <div class="form-footer">
         <p>
-          Don't have an account?
-          <a href="#" @click="$emit('switch-to-register')">Register here</a>
+          NOT A USER?
+          <a href="#" @click="$emit('switch-to-register')">REGISTER</a>
         </p>
       </div>
     </div>
@@ -57,7 +59,7 @@ const emit = defineEmits<{
 
 const authStore = useAuthStore();
 
-const username = ref("");
+const email = ref("");
 const password = ref("");
 
 const isLoading = computed(() => authStore.isLoading);
@@ -65,9 +67,15 @@ const error = computed(() => authStore.error);
 
 const handleLogin = async () => {
   try {
-    await authStore.login(username.value, password.value);
+    console.log("LoginForm: Attempting login with:", {
+      email: email.value,
+      password: password.value,
+    });
+    await authStore.login(email.value, password.value);
+    console.log("LoginForm: Login successful");
     emit("login-success");
   } catch (err) {
+    console.log("LoginForm: Login failed with error:", err);
     // Error is handled by the store
   }
 };
@@ -76,55 +84,84 @@ const handleLogin = async () => {
 <style scoped>
 .login-form {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 60vh;
-  padding: 2rem;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .form-container {
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  width: 100%;
-  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.form-container h2 {
+.logo {
+  width: 60px;
+  height: 60px;
+  background: var(--accent-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  border-radius: var(--radius-md);
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.form-container h1 {
   text-align: center;
-  margin-bottom: 1.5rem;
-  color: #2c3e50;
+  color: var(--text-primary);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 2px;
 }
 
 .form-group {
-  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  color: #555;
+  color: var(--text-primary);
   font-weight: 500;
+  font-size: 0.9rem;
 }
 
 .form-group input {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
   font-size: 1rem;
   transition: border-color 0.2s;
+  background: var(--bg-primary);
 }
 
 .form-group input:focus {
   outline: none;
-  border-color: #3498db;
+  border-color: var(--accent-primary);
 }
 
-.form-group input:disabled {
+.form-group input:disabled,
+.form-group select:disabled {
   background-color: #f5f5f5;
   cursor: not-allowed;
+}
+
+.event-select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  background-color: white;
+  cursor: pointer;
+}
+
+.event-select:focus {
+  outline: none;
+  border-color: #3498db;
 }
 
 .error-message {
@@ -148,16 +185,16 @@ const handleLogin = async () => {
 }
 
 .btn-primary {
-  background-color: #3498db;
+  background-color: var(--accent-primary);
   color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #2980b9;
+  background-color: #2563eb;
 }
 
 .btn-primary:disabled {
-  background-color: #bdc3c7;
+  background-color: var(--text-muted);
   cursor: not-allowed;
 }
 
@@ -167,7 +204,7 @@ const handleLogin = async () => {
 }
 
 .form-footer a {
-  color: #3498db;
+  color: var(--accent-primary);
   text-decoration: none;
 }
 

@@ -32,14 +32,14 @@ const router = useRouter();
 const showLogin = ref(true);
 
 const handleAuthSuccess = () => {
-  router.push("/dashboard");
+  router.push("/select-event");
 };
 </script>
 
 <style scoped>
 .auth-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--bg-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -54,7 +54,7 @@ const handleAuthSuccess = () => {
 .auth-header {
   text-align: center;
   margin-bottom: 2rem;
-  color: white;
+  color: var(--text-primary);
 }
 
 .auth-header h1 {
@@ -69,9 +69,10 @@ const handleAuthSuccess = () => {
 }
 
 .auth-forms {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
+  padding: 2rem;
 }
 </style>
