@@ -1,91 +1,102 @@
 <template>
   <div class="home">
-    <div class="countdown-section">
-      <h2>READING ENDS IN</h2>
-      <div class="countdown-timer">{{ countdownDisplay }}</div>
-      <div class="countdown-date">{{ endDateDisplay }}</div>
+    <div v-if="readerStatsStore.isLoading" class="loading">
+      <p>Loading reader statistics...</p>
     </div>
 
-    <div class="content-grid">
-      <div class="progress-section">
-        <h3>YOUR PROGRESS</h3>
-        <div class="stats">
-          <div class="stat-item">
-            <span class="stat-label">APPS READ:</span>
-            <span class="stat-value"
-              >{{ userReadCount }}/{{ requiredReads }}</span
-            >
+    <div v-else-if="readerStatsStore.error" class="error">
+      <p>{{ readerStatsStore.error }}</p>
+      <button @click="loadReaderStats" class="btn btn-primary">Retry</button>
+    </div>
+
+    <div v-else>
+      <div class="countdown-section">
+        <h2>READING ENDS IN</h2>
+        <div class="countdown-timer">{{ countdownDisplay }}</div>
+        <div class="countdown-date">{{ endDateDisplay }}</div>
+      </div>
+
+      <div class="content-grid">
+        <div class="progress-section">
+          <h3>YOUR PROGRESS</h3>
+          <div class="stats">
+            <div class="stat-item">
+              <span class="stat-label">APPS READ:</span>
+              <span class="stat-value"
+                >{{ userReadCount }}/{{ requiredReads }}</span
+              >
+            </div>
+            <div class="stat-item">
+              <span class="stat-label"># SKIPS:</span>
+              <span class="stat-value">{{ userSkipCount }}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">TIME/READ:</span>
+              <span class="stat-value">{{ averageReadTime }}min</span>
+            </div>
           </div>
-          <div class="stat-item">
-            <span class="stat-label"># SKIPS:</span>
-            <span class="stat-value">{{ userSkipCount }}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">TIME/READ:</span>
-            <span class="stat-value">{{ averageReadTime }}min</span>
+
+          <div class="scatter-plot">
+            <h4>Reader Comparison</h4>
+            <div class="plot-container">
+              <div
+                class="plot-point"
+                v-for="(reader, index) in readers"
+                :key="reader.id"
+                :style="getPointStyle(reader)"
+                :title="`${reader.name}: ${reader.readCount} reads, ${reader.averageTime}min avg`"
+              >
+                <span v-if="reader.id === currentUserId" class="user-indicator"
+                  >👁</span
+                >
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="scatter-plot">
-          <h4>Reader Comparison</h4>
-          <div class="plot-container">
+        <div class="leaderboard-section">
+          <h3>LEADERBOARD</h3>
+          <div class="leaderboard-table">
+            <div class="table-header">
+              <span>RANK</span>
+              <span>NAME</span>
+              <span># READ</span>
+              <span># SKIPS</span>
+              <span>TIME/READ</span>
+            </div>
             <div
-              class="plot-point"
-              v-for="(reader, index) in readers"
+              class="table-row"
+              v-for="(reader, index) in sortedReaders"
               :key="reader.id"
-              :style="getPointStyle(reader)"
-              :title="`${reader.name}: ${reader.readCount} reads, ${reader.averageTime}min avg`"
+              :class="{ 'current-user': reader.id === currentUserId }"
             >
-              <span v-if="reader.id === currentUserId" class="user-indicator"
-                >👁</span
+              <span class="rank">{{ index + 1 }}</span>
+              <span class="name">{{ reader.name }}</span>
+              <span
+                class="read-count"
+                :class="getReadCountClass(reader.readCount)"
+                >{{ reader.readCount }}</span
+              >
+              <span
+                class="skip-count"
+                :class="getSkipCountClass(reader.skipCount)"
+                >{{ reader.skipCount }}</span
+              >
+              <span
+                class="time-read"
+                :class="getTimeReadClass(reader.averageTime)"
+                >{{ reader.averageTime }}min</span
               >
             </div>
           </div>
         </div>
       </div>
 
-      <div class="leaderboard-section">
-        <h3>LEADERBOARD</h3>
-        <div class="leaderboard-table">
-          <div class="table-header">
-            <span>RANK</span>
-            <span>NAME</span>
-            <span># READ</span>
-            <span># SKIPS</span>
-            <span>TIME/READ</span>
-          </div>
-          <div
-            class="table-row"
-            v-for="(reader, index) in sortedReaders"
-            :key="reader.id"
-            :class="{ 'current-user': reader.id === currentUserId }"
-          >
-            <span class="rank">{{ index + 1 }}</span>
-            <span class="name">{{ reader.name }}</span>
-            <span
-              class="read-count"
-              :class="getReadCountClass(reader.readCount)"
-              >{{ reader.readCount }}</span
-            >
-            <span
-              class="skip-count"
-              :class="getSkipCountClass(reader.skipCount)"
-              >{{ reader.skipCount }}</span
-            >
-            <span
-              class="time-read"
-              :class="getTimeReadClass(reader.averageTime)"
-              >{{ reader.averageTime }}min</span
-            >
-          </div>
-        </div>
+      <div class="action-section">
+        <button @click="startReading" class="btn btn-primary btn-large">
+          Start Reading Applications
+        </button>
       </div>
-    </div>
-
-    <div class="action-section">
-      <button @click="startReading" class="btn btn-primary btn-large">
-        Start Reading Applications
-      </button>
     </div>
   </div>
 </template>
@@ -199,14 +210,20 @@ const startReading = () => {
   router.push("/read");
 };
 
+const loadReaderStats = async () => {
+  if (eventsStore.currentEvent) {
+    await readerStatsStore.loadReaderStats(eventsStore.currentEvent._id);
+  }
+};
+
 onMounted(async () => {
   if (!authStore.isAuthenticated) {
     router.push("/auth");
+  } else if (!eventsStore.currentEvent) {
+    router.push("/select-event");
   } else {
     // Load reader stats for the current event
-    if (eventsStore.currentEvent) {
-      await readerStatsStore.loadReaderStats(eventsStore.currentEvent.eventId);
-    }
+    await readerStatsStore.loadReaderStats(eventsStore.currentEvent._id);
     updateCountdown();
     // Update countdown every second
     setInterval(updateCountdown, 1000);
@@ -221,6 +238,31 @@ onMounted(async () => {
   padding: 2rem;
   background: transparent;
   min-height: 100vh;
+}
+
+.loading,
+.error {
+  text-align: center;
+  padding: 2rem;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  margin-bottom: 2rem;
+}
+
+.loading p,
+.error p {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.error p {
+  color: #dc2626;
 }
 
 .countdown-section {

@@ -44,6 +44,18 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: "/admin/event/:id",
+      name: "event-config",
+      component: () => import("../views/EventConfiguration.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: "/admin/create-event",
+      name: "create-event",
+      component: () => import("../views/CreateEvent.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: "/applications/:id",
       name: "application-detail",
       component: () => import("../views/ApplicationDetail.vue"),
@@ -63,14 +75,29 @@ router.beforeEach((to, from, next) => {
     return;
   }
 
-  // Check if route requires event selection
-  if (to.meta.requiresEventSelection && !eventsStore.currentEvent) {
+  // Check if route requires admin privileges
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    // If user is not admin, redirect to event selection
     next("/select-event");
     return;
   }
 
-  // Check if route requires admin privileges
-  if (to.meta.requiresAdmin && !authStore.user?.isAdmin) {
+  // If user is admin and trying to access event selection, redirect to admin page (unless in reader view)
+  if (
+    to.name === "select-event" &&
+    authStore.isAdmin &&
+    authStore.isAdminView
+  ) {
+    next("/admin");
+    return;
+  }
+
+  // Check if route requires event selection (for non-admin users)
+  if (
+    to.meta.requiresEventSelection &&
+    !eventsStore.currentEvent &&
+    !authStore.isAdmin
+  ) {
     next("/select-event");
     return;
   }

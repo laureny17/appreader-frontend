@@ -63,7 +63,23 @@
               <span class="score">Score: {{ review.score }}/10</span>
             </div>
             <div class="review-comment">
-              <p>{{ review.comment }}</p>
+              <div class="comment-header">
+                <span class="comment-author">{{
+                  review.authorName || "Unknown User"
+                }}</span>
+                <span
+                  class="comment-type"
+                  :class="getCommentTypeClass(review.type)"
+                >
+                  {{ getCommentTypeLabel(review.type) }}
+                </span>
+              </div>
+              <div
+                class="comment-content"
+                :class="getCommentHighlightClass(review.type)"
+              >
+                <p>{{ review.comment }}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -116,6 +132,51 @@ const unassignReviewer = async (reviewerId: string) => {
     );
   } catch (err) {
     console.error("Failed to unassign reviewer:", err);
+  }
+};
+
+const getCommentTypeClass = (type: string) => {
+  switch (type) {
+    case "ai_attention":
+      return "comment-type-attention";
+    case "ai_weak":
+      return "comment-type-weak";
+    case "ai_strong":
+      return "comment-type-strong";
+    case "user":
+      return "comment-type-user";
+    default:
+      return "comment-type-default";
+  }
+};
+
+const getCommentTypeLabel = (type: string) => {
+  switch (type) {
+    case "ai_attention":
+      return "AI - Attention";
+    case "ai_weak":
+      return "AI - Weak";
+    case "ai_strong":
+      return "AI - Strong";
+    case "user":
+      return "User Comment";
+    default:
+      return "Comment";
+  }
+};
+
+const getCommentHighlightClass = (type: string) => {
+  switch (type) {
+    case "ai_attention":
+      return "highlight-attention";
+    case "ai_weak":
+      return "highlight-weak";
+    case "ai_strong":
+      return "highlight-strong";
+    case "user":
+      return "highlight-user";
+    default:
+      return "";
   }
 };
 
@@ -257,6 +318,83 @@ onMounted(() => {
   margin: 0;
   color: #555;
   line-height: 1.4;
+}
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.comment-author {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.comment-type {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.comment-type-attention {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.comment-type-weak {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.comment-type-strong {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.comment-type-user {
+  background: rgba(147, 51, 234, 0.1);
+  color: #9333ea;
+  border: 1px solid rgba(147, 51, 234, 0.2);
+}
+
+.comment-type-default {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+  border: 1px solid rgba(107, 114, 128, 0.2);
+}
+
+.comment-content {
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+}
+
+.highlight-attention {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.highlight-weak {
+  background: rgba(245, 158, 11, 0.05);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.highlight-strong {
+  background: rgba(34, 197, 94, 0.05);
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.highlight-user {
+  background: rgba(147, 51, 234, 0.05);
+  border-color: rgba(147, 51, 234, 0.2);
 }
 
 .btn {

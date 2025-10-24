@@ -912,6 +912,77 @@
 
 ---
 
+### POST /api/EventDirectory/\_isAdmin
+
+**Description:** Checks whether a user is an administrator.
+
+**Requirements:**
+
+- User ID is valid.
+
+**Effects:**
+
+- Returns the admin status of the user.
+
+**Request Body:**
+{
+"user": "ID"
+}
+
+**Success Response Body (Query):**
+{
+"isAdmin": true | false
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/EventDirectory/getAllEvents
+
+**Description:** Retrieves all events in the system (admin only).
+
+**Requirements:**
+
+- Caller is an admin.
+
+**Effects:**
+
+- Returns all events with their full details.
+
+**Request Body:**
+{}
+
+**Success Response Body (Query):**
+[
+{
+"\_id": "ID",
+"name": "string",
+"active": "boolean",
+"requiredReadsPerApp": "number",
+"rubric": [
+{
+"name": "string",
+"description": "string",
+"scaleMin": "number",
+"scaleMax": "number"
+}
+],
+"eligibilityCriteria": ["string"],
+"endDate": "Date"
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
 # API Specification: ReviewRecords Concept
 
 **Purpose:** Store and manage reviews, scores, flags, and comments for each application.

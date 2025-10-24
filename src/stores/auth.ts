@@ -10,11 +10,18 @@ export interface User {
 }
 
 export interface Event {
-  eventId: string;
+  _id: string;
   name: string;
-  description: string;
-  startTime: number;
-  endTime: number;
+  active: boolean;
+  requiredReadsPerApp: number;
+  rubric: Array<{
+    name: string;
+    description: string;
+    scaleMin: number;
+    scaleMax: number;
+  }>;
+  eligibilityCriteria: string[];
+  questions: string[];
   endDate?: string;
 }
 
@@ -31,11 +38,15 @@ export const useAuthStore = defineStore("auth", () => {
   const user = ref<User | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
+  const viewMode = ref<"admin" | "reader">("admin"); // Default to admin view for admins
 
   const isAuthenticated = computed(() => user.value !== null);
   const email = computed(() => user.value?.email || "");
   const name = computed(() => user.value?.name || "");
   const userId = computed(() => user.value?.id || "");
+  const isAdmin = computed(() => user.value?.isAdmin || false);
+  const isAdminView = computed(() => viewMode.value === "admin");
+  const isReaderView = computed(() => viewMode.value === "reader");
 
   const setUser = (userData: User) => {
     user.value = userData;
@@ -91,6 +102,8 @@ export const useAuthStore = defineStore("auth", () => {
 
       // Try to fetch user details to get name, but don't fail if it doesn't work
       let userName = email; // Default to email if we can't get the name
+      let isAdmin = false; // Default to false
+
       try {
         const accountDetails = await api.auth.getAccountByUserId(response.user);
         console.log("Account details:", accountDetails);
@@ -108,13 +121,42 @@ export const useAuthStore = defineStore("auth", () => {
         // Continue with email as name
       }
 
+      // Check admin status using the proper endpoint
+      console.log("=== ADMIN STATUS DEBUG ===");
+      console.log("User ID:", response.user);
+      console.log("Email:", email);
+
+      try {
+        console.log("Checking admin status for user:", response.user);
+        const adminStatus = await api.admin.checkAdminStatus(response.user);
+        console.log("Admin status response:", adminStatus);
+        isAdmin = adminStatus.isAdmin;
+        console.log("Final admin status from API:", isAdmin);
+      } catch (adminError) {
+        console.error("Admin status check failed:", adminError);
+        isAdmin = false;
+      }
+
+      console.log("Final isAdmin value:", isAdmin);
+      console.log("=== END ADMIN DEBUG ===");
+
       const userData: User = {
         id: response.user,
         email: email,
         name: userName,
-        isAdmin: false, // Would be determined by backend
+        isAdmin: isAdmin,
       };
       setUser(userData);
+
+      // Set default view mode based on admin status
+      if (isAdmin) {
+        viewMode.value = "admin";
+        console.log("Set viewMode to admin");
+      } else {
+        viewMode.value = "reader";
+        console.log("Set viewMode to reader");
+      }
+
       return userData;
     } catch (err) {
       console.error("Login error:", err);
@@ -129,14 +171,35 @@ export const useAuthStore = defineStore("auth", () => {
 
   const logout = () => {
     clearUser();
+    viewMode.value = "admin"; // Reset to admin view
   };
 
-  const getUsername = async (userId: string) => {
+  const switchToAdminView = () => {
+    if (isAdmin.value) {
+      viewMode.value = "admin";
+    }
+  };
+
+  const switchToReaderView = () => {
+    viewMode.value = "reader";
+  };
+
+  const setAdminStatus = (isAdmin: boolean) => {
+    if (user.value) {
+      user.value.isAdmin = isAdmin;
+    }
+    viewMode.value = isAdmin ? "admin" : "reader";
+  };
+
+  const getNameByUserId = async (userId: string) => {
     try {
-      const response = await api.auth.getUsername(userId);
-      return response[0]?.username || "";
+      const response = await api.auth.getAccountByUserId(userId);
+      // Expecting array response as per API spec
+      return response && Array.isArray(response) && response.length > 0
+        ? response[0]?.name || ""
+        : "";
     } catch (err) {
-      console.error("Failed to get username:", err);
+      console.error("Failed to get user name:", err);
       return "";
     }
   };
@@ -146,12 +209,16 @@ export const useAuthStore = defineStore("auth", () => {
     user: readonly(user),
     isLoading: readonly(isLoading),
     error: readonly(error),
+    viewMode: readonly(viewMode),
 
     // Computed
     isAuthenticated,
     email,
     name,
     userId,
+    isAdmin,
+    isAdminView,
+    isReaderView,
 
     // Actions
     setUser,
@@ -161,6 +228,9 @@ export const useAuthStore = defineStore("auth", () => {
     register,
     login,
     logout,
-    getUsername,
+    getNameByUserId,
+    switchToAdminView,
+    switchToReaderView,
+    setAdminStatus,
   };
 });

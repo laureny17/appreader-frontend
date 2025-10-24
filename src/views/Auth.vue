@@ -25,6 +25,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
+import { useAuthStore } from "@/stores/auth";
 import LoginForm from "@/components/LoginForm.vue";
 import RegisterForm from "@/components/RegisterForm.vue";
 
@@ -32,7 +33,22 @@ const router = useRouter();
 const showLogin = ref(true);
 
 const handleAuthSuccess = () => {
-  router.push("/select-event");
+  // Check if user is admin and redirect accordingly
+  const authStore = useAuthStore();
+  console.log("=== AUTH SUCCESS DEBUG ===");
+  console.log("isAdmin:", authStore.isAdmin);
+  console.log("isAdminView:", authStore.isAdminView);
+  console.log("viewMode:", authStore.viewMode);
+  console.log("User data:", authStore.user);
+  console.log("=== END AUTH DEBUG ===");
+
+  if (authStore.isAdmin && authStore.isAdminView) {
+    console.log("Redirecting to admin page");
+    router.push("/admin");
+  } else {
+    console.log("Redirecting to event selection");
+    router.push("/select-event");
+  }
 };
 </script>
 
@@ -43,7 +59,7 @@ const handleAuthSuccess = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: 1rem;
 }
 
 .auth-container {

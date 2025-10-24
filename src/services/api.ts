@@ -112,46 +112,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ email }),
       }),
-  },
 
-  // Application Storage endpoints
-  applicationStorage: {
-    createApplication: (name: string) =>
-      apiRequest<{ applicationId: string }>(
-        "/ApplicationStorage/createApplication",
-        {
-          method: "POST",
-          body: JSON.stringify({ name }),
-        }
-      ),
-
-    deleteApplication: (applicationId: string) =>
-      apiRequest("/ApplicationStorage/deleteApplication", {
+    getNameByUserId: (userId: string) =>
+      apiRequest<{ name: string }>("/AuthAccounts/_getNameByUserId", {
         method: "POST",
-        body: JSON.stringify({ applicationId }),
-      }),
-
-    saveData: (
-      user: string,
-      applicationId: string,
-      key: string,
-      data: string
-    ) =>
-      apiRequest("/ApplicationStorage/saveData", {
-        method: "POST",
-        body: JSON.stringify({ user, applicationId, key, data }),
-      }),
-
-    getData: (user: string, applicationId: string, key: string) =>
-      apiRequest<[{ data: string }]>("/ApplicationStorage/_getData", {
-        method: "POST",
-        body: JSON.stringify({ user, applicationId, key }),
-      }),
-
-    listKeys: (user: string, applicationId: string) =>
-      apiRequest<[{ key: string }]>("/ApplicationStorage/_listKeys", {
-        method: "POST",
-        body: JSON.stringify({ user, applicationId }),
+        body: JSON.stringify({ userId }),
       }),
   },
 
@@ -395,10 +360,104 @@ export const api = {
           scaleMax: number;
         }>;
         eligibilityCriteria: string[];
+        questions: string[];
         endDate?: string;
       }>("/EventDirectory/_getEventById", {
         method: "POST",
         body: JSON.stringify({ event: eventId }),
+      }),
+
+    getQuestionsForEvent: (eventId: string) =>
+      apiRequest<{ questions: string[] } | { error: string }>(
+        "/EventDirectory/_getQuestionsForEvent",
+        {
+          method: "POST",
+          body: JSON.stringify({ event: eventId }),
+        }
+      ),
+  },
+
+  // Application Storage endpoints
+  applicationStorage: {
+    addApplication: (
+      adder: string,
+      event: string,
+      applicantID: string,
+      applicantYear: string,
+      answers: string[]
+    ) =>
+      apiRequest<{ application: string; event: string } | { error: string }>(
+        "/ApplicationStorage/addApplication",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            adder,
+            event,
+            applicantID,
+            applicantYear,
+            answers,
+          }),
+        }
+      ),
+
+    getApplication: (application: string) =>
+      apiRequest<{
+        _id: string;
+        event: string;
+        applicantID: string;
+        applicantYear: string;
+        answers: string[];
+      } | null>("/ApplicationStorage/_getApplication", {
+        method: "POST",
+        body: JSON.stringify({ application }),
+      }),
+
+    generateAIComments: (
+      application: string,
+      questions: string[],
+      rubric: string[],
+      eligibilityCriteria: string[]
+    ) =>
+      apiRequest<{} | { error: string }>(
+        "/ApplicationStorage/generateAIComments",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            application,
+            questions,
+            rubric,
+            eligibilityCriteria,
+          }),
+        }
+      ),
+
+    getAICommentsByApplication: (application: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          application: string;
+          category: "Strong" | "Weak" | "Attention";
+          quotedSnippet: string;
+          justification: string;
+        }>
+      >("/ApplicationStorage/_getAICommentsByApplication", {
+        method: "POST",
+        body: JSON.stringify({ application }),
+      }),
+
+    // Get all applications for an event (we'll need to implement this in backend)
+    getApplicationsByEvent: (event: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          event: string;
+          applicantID: string;
+          applicantYear: string;
+          answers: string[];
+        }>
+      >("/ApplicationStorage/_getApplicationsByEvent", {
+        method: "POST",
+        body: JSON.stringify({ event }),
       }),
   },
 
@@ -416,6 +475,37 @@ export const api = {
       >("/ReaderStats/getReaderStats", {
         method: "POST",
         body: JSON.stringify({ event: eventId }),
+      }),
+  },
+
+  // Admin endpoints
+  admin: {
+    checkAdminStatus: (userId: string) =>
+      apiRequest<{ isAdmin: boolean }>("/EventDirectory/_isAdmin", {
+        method: "POST",
+        body: JSON.stringify({ user: userId }),
+      }),
+
+    getAllEvents: () =>
+      apiRequest<
+        Array<{
+          _id: string;
+          name: string;
+          active: boolean;
+          requiredReadsPerApp: number;
+          rubric: Array<{
+            name: string;
+            description: string;
+            scaleMin: number;
+            scaleMax: number;
+          }>;
+          eligibilityCriteria: string[];
+          questions: string[];
+          endDate?: string;
+        }>
+      >("/EventDirectory/getAllEvents", {
+        method: "POST",
+        body: JSON.stringify({}),
       }),
   },
 

@@ -18,7 +18,32 @@
       </div>
     </div>
 
-    <div class="read-content">
+    <div v-if="applicationsStore.isLoading" class="loading">
+      <p>Loading application...</p>
+    </div>
+
+    <div v-else-if="applicationsStore.error" class="error">
+      <p>{{ applicationsStore.error }}</p>
+      <button @click="loadApplicationData" class="btn btn-primary">
+        Retry
+      </button>
+    </div>
+
+    <div
+      v-else-if="!applicationsStore.currentApplication"
+      class="no-application"
+    >
+      <p v-if="applicationsStore.applications.length === 0">
+        No applications available to read.
+      </p>
+      <p v-else>Loading application...</p>
+      <p>
+        All applications have been reviewed or there are no applications for
+        this event.
+      </p>
+    </div>
+
+    <div v-else class="read-content">
       <div class="scoring-panel">
         <h3>Scoring</h3>
         <div
@@ -54,27 +79,39 @@
       <div class="application-content">
         <div class="application-header">
           <h2>
-            APPLICANT YR: {{ currentApplication?.applicantYear || "2027" }}
+            APPLICANT:
+            {{ applicationsStore.currentApplication?.applicantID }} ({{
+              applicationsStore.currentApplication?.applicantYear
+            }})
           </h2>
         </div>
 
         <div class="questions">
           <div
             class="question"
-            v-for="(qa, index) in currentApplication?.questionsAndAnswers"
+            v-for="(answer, index) in applicationsStore.currentApplication
+              ?.answers"
             :key="index"
           >
-            <h3>Q{{ index + 1 }}) {{ qa.question }}</h3>
-            <div class="answer" v-html="formatAnswer(qa.answer)"></div>
+            <h3>Q{{ index + 1 }}) {{ getQuestionForIndex(index) }}</h3>
+            <p class="question-prompt">Applicant's Response:</p>
+            <div
+              class="answer"
+              ref="answerDiv"
+              @mouseup="handleTextSelection"
+              @mouseover="handleAIHighlightHover"
+              @mouseleave="handleAIHighlightLeave"
+              @click="handleAnswerClick"
+            ></div>
           </div>
         </div>
       </div>
 
       <div class="comments-panel">
-        <h3>Comments</h3>
-        <div class="comment" v-for="comment in comments" :key="comment.id">
+        <h3>User Comments</h3>
+        <div class="comment" v-for="comment in userComments" :key="comment.id">
           <div class="comment-header">
-            <span class="commenter">READER {{ comment.readerId }}</span>
+            <span class="comment-author">{{ comment.author }}</span>
             <span class="comment-time">{{
               formatTime(comment.timestamp)
             }}</span>
@@ -85,13 +122,46 @@
           </div>
         </div>
 
-        <div class="add-comment">
-          <textarea
-            v-model="newComment"
-            placeholder="Add a comment..."
-            class="comment-input"
-          ></textarea>
-          <button @click="addComment" class="btn btn-primary btn-sm">
+        <div v-if="userComments.length === 0" class="no-comments">
+          <p>No user comments yet. Select text to add a comment.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating AI Comment Tooltip -->
+    <div v-if="hoveredAIComment" class="ai-tooltip" :style="tooltipPosition">
+      <div class="ai-tooltip-content">
+        <div class="ai-tooltip-header">
+          <span
+            class="ai-category"
+            :class="getCommentCategoryClass(hoveredAIComment.category)"
+          >
+            {{ hoveredAIComment.category }}
+          </span>
+        </div>
+        <div class="ai-tooltip-text">{{ hoveredAIComment.justification }}</div>
+      </div>
+    </div>
+
+    <!-- Text Selection Comment Dialog -->
+    <div
+      v-if="showCommentDialog"
+      class="comment-dialog"
+      :style="commentDialogPosition"
+    >
+      <div class="comment-dialog-content">
+        <h4>Add Comment</h4>
+        <p class="selected-text">"{{ selectedText }}"</p>
+        <textarea
+          v-model="newComment"
+          placeholder="Write your comment..."
+          class="comment-textarea"
+        ></textarea>
+        <div class="comment-dialog-actions">
+          <button @click="cancelComment" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button @click="submitComment" class="btn btn-primary">
             Add Comment
           </button>
         </div>
@@ -135,69 +205,311 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useEventsStore } from "@/stores/events";
+import { useApplicationsStore } from "@/stores/applications";
 
 const router = useRouter();
 const authStore = useAuthStore();
 const eventsStore = useEventsStore();
+const applicationsStore = useApplicationsStore();
 
-// Mock data
-const currentReads = ref(130);
-const requiredReads = ref(200);
-const currentApplication = ref({
-  id: "1",
-  applicantYear: "2027",
-  questionsAndAnswers: [
-    {
-      question: "Tell us about a project you're proud of",
-      answer:
-        "I built a machine learning model that predicts stock prices with 95% accuracy. I won 100 hackathons in 1 month and created an app that helps people learn to code.",
-    },
-    {
-      question: "Why do you want to attend this event?",
-      answer:
-        "I'm passionate about technology and want to learn from other developers. I believe this event will help me grow as a programmer and make meaningful connections.",
-    },
-  ],
-});
-
-const rubricDimensions = ref([
-  { id: "1", name: "PASSION", scaleMin: 1, scaleMax: 5 },
-  { id: "2", name: "IDK", scaleMin: 1, scaleMax: 5 },
-]);
-
-const scores = ref({
-  "1": 4,
-  "2": 3,
-});
-
-const comments = ref([
-  {
-    id: "1",
-    readerId: "1",
-    timestamp: new Date("2024-09-27T10:40:00"),
-    text: "We have to admit this person",
-    quotedSnippet: "I won 100 hackathons in 1 month",
-  },
-]);
-
+// Real data from API
+const currentReads = ref(0);
+const requiredReads = ref(0);
+const rubricDimensions = ref([]);
+const scores = ref({});
+const userComments = ref([]);
 const newComment = ref("");
 const showRubric = ref<string | null>(null);
-const previousReads = ref([
-  { id: "1", timestamp: new Date("2024-09-27T10:40:00") },
-  { id: "2", timestamp: new Date("2024-09-27T10:20:00") },
-]);
+const previousReads = ref([]);
+
+// AI Comment highlighting and tooltips
+const hoveredAIComment = ref(null);
+const tooltipPosition = ref({ top: "0px", left: "0px" });
+
+// Text selection for user comments
+const showCommentDialog = ref(false);
+const selectedText = ref("");
+const commentDialogPosition = ref({ top: "0px", left: "0px" });
 
 const progressPercentage = computed(() => {
+  if (requiredReads.value === 0) return 0;
   return (currentReads.value / requiredReads.value) * 100;
 });
+
+// Load real data from API
+const loadApplicationData = async () => {
+  if (!eventsStore.currentEvent) return;
+
+  try {
+    // Load rubric from current event
+    rubricDimensions.value = eventsStore.currentEvent.rubric || [];
+
+    // Initialize scores
+    scores.value = {};
+    rubricDimensions.value.forEach((criterion) => {
+      scores.value[criterion.name] = criterion.scaleMin;
+    });
+
+    // Load required reads from current event
+    requiredReads.value = eventsStore.currentEvent.requiredReadsPerApp || 0;
+
+    // Debug: Log event data to see what we have
+    console.log("=== LOADING APPLICATION DATA ===");
+    console.log("Current event data:", eventsStore.currentEvent);
+    console.log("Event questions:", eventsStore.currentEvent.questions);
+    console.log(
+      "Questions length:",
+      eventsStore.currentEvent.questions?.length
+    );
+    console.log("Event name:", eventsStore.currentEvent.name);
+    console.log(
+      "Full event object:",
+      JSON.stringify(eventsStore.currentEvent, null, 2)
+    );
+
+    // Load applications for this event
+    await applicationsStore.loadApplicationsForEvent(
+      eventsStore.currentEvent._id
+    );
+
+    // Load the first application if available
+    console.log("Applications loaded:", applicationsStore.applications.length);
+    if (applicationsStore.applications.length > 0) {
+      const firstApp = applicationsStore.applications[0];
+      console.log("Loading first application:", firstApp);
+      await applicationsStore.loadApplication(firstApp._id);
+      console.log("Current application:", applicationsStore.currentApplication);
+      console.log(
+        "Application answers:",
+        applicationsStore.currentApplication?.answers
+      );
+
+      // Set innerHTML directly for each answer
+      setTimeout(() => {
+        const answerDivs = document.querySelectorAll(".answer");
+        if (applicationsStore.currentApplication?.answers) {
+          applicationsStore.currentApplication.answers.forEach(
+            (answer, index) => {
+              if (answerDivs[index]) {
+                const highlightedHTML = formatAnswerWithHighlights(
+                  answer,
+                  index
+                );
+                console.log(
+                  `Setting innerHTML for answer ${index}:`,
+                  highlightedHTML
+                );
+                answerDivs[index].innerHTML = highlightedHTML;
+              }
+            }
+          );
+        }
+      }, 100);
+    } else {
+      console.log("No applications found!");
+    }
+
+    // TODO: Load current reads count from API
+    // const stats = await api.readerStats.getReaderStats();
+    // currentReads.value = stats.readCount;
+  } catch (err) {
+    console.error("Error loading application data:", err);
+  }
+};
 
 const formatAnswer = (answer: string) => {
   // Highlight quoted snippets that have comments
   return answer.replace(/I won 100 hackathons in 1 month/g, "<mark>$&</mark>");
+};
+
+const formatAnswerWithHighlights = (answer: string, answerIndex: number) => {
+  // Only highlight snippets from currentApplicationComments
+  let highlightedAnswer = answer;
+
+  if (
+    applicationsStore.currentApplicationComments &&
+    applicationsStore.currentApplicationComments.length > 0
+  ) {
+    applicationsStore.currentApplicationComments.forEach((comment) => {
+      const snippet = comment.quotedSnippet;
+      if (snippet && highlightedAnswer.includes(snippet)) {
+        const highlightClass = getCommentCategoryClass(comment.category);
+        // Add data attributes for id, category, and justification
+        const highlightedSnippet = `<span class="ai-highlight ${highlightClass}" data-comment-id="${
+          comment._id
+        }" data-comment-category="${
+          comment.category
+        }" data-comment-justification="${encodeURIComponent(
+          comment.justification
+        )}">${snippet}</span>`;
+        highlightedAnswer = highlightedAnswer.replace(
+          snippet,
+          highlightedSnippet
+        );
+      }
+    });
+  }
+
+  return highlightedAnswer;
+};
+
+const getQuestionForIndex = (index: number) => {
+  console.log("=== GET QUESTION FOR INDEX ===");
+  console.log("Index:", index);
+  console.log("Current event:", eventsStore.currentEvent);
+  console.log("Event questions:", eventsStore.currentEvent?.questions);
+
+  if (
+    !eventsStore.currentEvent?.questions ||
+    !eventsStore.currentEvent.questions.length
+  ) {
+    console.log("No questions available, using fallback");
+    return `Question ${index + 1}`;
+  }
+
+  // The questions array should be in the same order as the answers array
+  const question = eventsStore.currentEvent.questions[index];
+  console.log("Question at index", index, ":", question);
+  return question || `Question ${index + 1}`;
+};
+
+const getCommentCategoryClass = (category: string) => {
+  switch (category) {
+    case "Strong":
+      return "comment-strong";
+    case "Weak":
+      return "comment-weak";
+    case "Attention":
+      return "comment-attention";
+    default:
+      return "comment-default";
+  }
+};
+
+// Handle text selection for user comments
+const handleTextSelection = (event: MouseEvent) => {
+  const selection = window.getSelection();
+  const selectedTextContent = selection?.toString().trim();
+
+  console.log("Text selection triggered:", selectedTextContent);
+
+  if (selectedTextContent && selectedTextContent.length > 0) {
+    const range = selection?.getRangeAt(0);
+    const rect = range?.getBoundingClientRect();
+
+    if (rect) {
+      selectedText.value = selectedTextContent;
+      commentDialogPosition.value = {
+        top: `${rect.top + window.scrollY - 10}px`,
+        left: `${rect.left + window.scrollX}px`,
+      };
+      showCommentDialog.value = true;
+      console.log("Comment dialog should show now");
+    }
+  }
+};
+
+// --- AI Highlight Tooltip Hover Logic with Delay ---
+let currentHoveredSpan: HTMLElement | null = null;
+let hideTooltipTimeout: number | null = null;
+
+// Helper to clear tooltip hide timer
+function clearTooltipTimer() {
+  if (hideTooltipTimeout !== null) {
+    clearTimeout(hideTooltipTimeout);
+    hideTooltipTimeout = null;
+  }
+}
+
+// Handle AI comment hover and tooltip positioning (for future use)
+const handleAICommentHover = (
+  event: MouseEvent,
+  comment: any,
+  target: HTMLElement
+) => {
+  clearTooltipTimer();
+  hoveredAIComment.value = comment;
+  // Position tooltip below the highlighted span
+  const rect = target.getBoundingClientRect();
+  tooltipPosition.value = {
+    top: `${rect.bottom + window.scrollY + 6}px`,
+    left: `${rect.left + window.scrollX}px`,
+  };
+};
+
+const handleAICommentLeave = () => {
+  // Hide after delay
+  clearTooltipTimer();
+  hideTooltipTimeout = window.setTimeout(() => {
+    hoveredAIComment.value = null;
+    currentHoveredSpan = null;
+    hideTooltipTimeout = null;
+  }, 500);
+};
+
+// Handle AI highlight hover
+const handleAIHighlightHover = (event: MouseEvent) => {
+  const target = event.target as HTMLElement;
+  if (!target.classList.contains("ai-highlight")) return;
+
+  clearTooltipTimer();
+  currentHoveredSpan = target;
+  const commentId = target.getAttribute("data-comment-id");
+  const comment = applicationsStore.currentApplicationComments.find(
+    (c) => c._id === commentId
+  );
+  if (comment) {
+    hoveredAIComment.value = comment;
+    const rect = target.getBoundingClientRect();
+    tooltipPosition.value = {
+      top: `${rect.bottom + window.scrollY + 6}px`,
+      left: `${rect.left + window.scrollX}px`,
+    };
+  }
+};
+
+const handleAIHighlightLeave = (event: MouseEvent) => {
+  // Always start a short timeout to hide the tooltip, but can be canceled if hover returns
+  clearTooltipTimer();
+  hideTooltipTimeout = window.setTimeout(() => {
+    hoveredAIComment.value = null;
+    currentHoveredSpan = null;
+    hideTooltipTimeout = null;
+  }, 500);
+};
+
+// Test click handler to see if highlighting is working
+const handleAnswerClick = (event: MouseEvent) => {
+  console.log("Answer clicked:", event.target);
+  const target = event.target as HTMLElement;
+  if (target.classList.contains("ai-highlight")) {
+    console.log("Clicked on highlighted text:", target.textContent);
+  }
+};
+
+// Comment dialog functions
+const cancelComment = () => {
+  showCommentDialog.value = false;
+  selectedText.value = "";
+  newComment.value = "";
+  window.getSelection()?.removeAllRanges();
+};
+
+const submitComment = () => {
+  if (newComment.value.trim()) {
+    userComments.value.push({
+      id: Date.now().toString(),
+      author: authStore.name || "You",
+      text: newComment.value,
+      quotedSnippet: selectedText.value,
+      timestamp: new Date(),
+    });
+    cancelComment();
+  }
 };
 
 const formatTime = (date: Date) => {
@@ -256,10 +568,59 @@ const loadPreviousRead = (event: Event) => {
 onMounted(async () => {
   if (!authStore.isAuthenticated) {
     router.push("/auth");
+  } else if (!eventsStore.currentEvent) {
+    router.push("/select-event");
   } else {
-    await eventsStore.loadEvents();
+    await loadApplicationData();
   }
+
+  // --- Add document-level mousemove to hide tooltip if outside all highlights ---
+  document.addEventListener("mousemove", (e: MouseEvent) => {
+    // If tooltip is not showing, do nothing
+    if (!hoveredAIComment.value) return;
+    // Check if the mouse is over any .ai-highlight
+    let el = e.target as HTMLElement | null;
+    let foundHighlight = false;
+    while (el) {
+      if (el.classList && el.classList.contains("ai-highlight")) {
+        foundHighlight = true;
+        break;
+      }
+      el = el.parentElement;
+    }
+    if (!foundHighlight) {
+      // Immediately hide tooltip and clear timers
+      clearTooltipTimer();
+      hoveredAIComment.value = null;
+      currentHoveredSpan = null;
+    }
+  });
 });
+
+// Watch for changes in current application and update highlights
+watch(
+  () => applicationsStore.currentApplication,
+  () => {
+    if (applicationsStore.currentApplication?.answers) {
+      setTimeout(() => {
+        const answerDivs = document.querySelectorAll(".answer");
+        applicationsStore.currentApplication.answers.forEach(
+          (answer, index) => {
+            if (answerDivs[index]) {
+              const highlightedHTML = formatAnswerWithHighlights(answer, index);
+              console.log(
+                `Watcher: Setting innerHTML for answer ${index}:`,
+                highlightedHTML
+              );
+              answerDivs[index].innerHTML = highlightedHTML;
+            }
+          }
+        );
+      }, 100);
+    }
+  },
+  { deep: true }
+);
 </script>
 
 <style scoped>
@@ -267,6 +628,223 @@ onMounted(async () => {
   min-height: 100vh;
   background: #f8f9fa;
   padding: 1rem;
+}
+
+.loading,
+.error,
+.no-application {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  margin: 2rem 0;
+}
+
+.loading p,
+.error p,
+.no-application p {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.error p {
+  color: #dc2626;
+}
+
+.no-application {
+  background: rgba(156, 163, 175, 0.05);
+  border: 1px solid rgba(156, 163, 175, 0.2);
+}
+
+.no-application p {
+  color: #6b7280;
+}
+
+.comment-category {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.comment-category:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.comment-strong {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.comment-weak {
+  background: rgba(251, 191, 36, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+.comment-attention {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.comment-default {
+  background: rgba(156, 163, 175, 0.1);
+  color: #6b7280;
+  border: 1px solid rgba(156, 163, 175, 0.2);
+}
+
+/* AI Highlighting in text */
+.ai-highlight {
+  display: inline !important;
+  padding: 2px 4px !important;
+  border-radius: 3px !important;
+  cursor: help !important;
+  transition: all 0.2s ease !important;
+  background-color: rgba(255, 255, 0, 0.8) !important;
+  border: 2px solid rgba(255, 0, 0, 0.8) !important;
+  font-weight: bold !important;
+  color: #000 !important;
+}
+
+.ai-highlight:hover {
+  transform: scale(1.02);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.ai-highlight.comment-strong {
+  background: rgba(34, 197, 94, 0.3);
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.ai-highlight.comment-weak {
+  background: rgba(251, 191, 36, 0.3);
+  color: #d97706;
+  font-weight: 600;
+}
+
+.ai-highlight.comment-attention {
+  background: rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* AI Tooltip */
+.ai-tooltip {
+  position: absolute;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.ai-tooltip-content {
+  background: white;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 0.75rem;
+  max-width: 300px;
+}
+
+.ai-tooltip-header {
+  margin-bottom: 0.5rem;
+}
+
+.ai-category {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.ai-tooltip-text {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+/* Comment Dialog */
+.comment-dialog {
+  position: absolute;
+  z-index: 1000;
+  background: white;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: 1rem;
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.comment-dialog-content h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.selected-text {
+  background: var(--bg-secondary);
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  font-style: italic;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.comment-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 0.5rem;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  margin-bottom: 0.75rem;
+  font-family: inherit;
+}
+
+.comment-dialog-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* User Comments */
+.no-comments {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.comment-author {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.comment-time {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Question styling */
+.question-prompt {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0.5rem 0;
+  font-style: italic;
 }
 
 .read-header {
@@ -437,6 +1015,11 @@ onMounted(async () => {
   line-height: 1.6;
   color: #555;
   white-space: pre-wrap;
+}
+
+/* Ensure AI highlights work properly */
+.answer .ai-highlight {
+  display: inline !important;
 }
 
 mark {
@@ -629,5 +1212,39 @@ mark {
     width: 100%;
     justify-content: center;
   }
+}
+
+/* === FIX: make injected highlights visible === */
+:deep(.ai-highlight.comment-strong) {
+  background: rgba(34, 197, 94, 0.25);
+  color: #166534;
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 0 2px;
+  transition: background 0.2s ease;
+}
+
+:deep(.ai-highlight.comment-weak) {
+  background: rgba(251, 191, 36, 0.25);
+  color: #92400e;
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 0 2px;
+  transition: background 0.2s ease;
+}
+
+:deep(.ai-highlight.comment-attention) {
+  background: rgba(239, 68, 68, 0.25);
+  color: #991b1b;
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 0 2px;
+  transition: background 0.2s ease;
+}
+
+:deep(.ai-highlight:hover) {
+  filter: brightness(1.05);
+  transform: scale(1.02);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
 }
 </style>

@@ -3,29 +3,52 @@
     <nav v-if="!isAuthPage" class="navbar">
       <div class="nav-brand">
         <h1>AppReader</h1>
+        <!-- Admin/Reader View Toggle -->
+        <div v-if="isAuthenticated && isAdmin" class="view-toggle">
+          <button
+            @click="handleViewModeSwitch('admin')"
+            :class="{ active: authStore.isAdminView }"
+            class="toggle-btn"
+          >
+            ADMIN VIEW
+          </button>
+          <button
+            @click="handleViewModeSwitch('reader')"
+            :class="{ active: authStore.isReaderView }"
+            class="toggle-btn"
+          >
+            READER VIEW
+          </button>
+        </div>
       </div>
       <div class="nav-links">
-        <router-link
-          v-if="isAuthenticated && hasSelectedEvent"
-          to="/"
-          class="nav-link"
-          :class="{ active: $route.name === 'home' }"
-          >HOME</router-link
-        >
-        <router-link
-          v-if="isAuthenticated && hasSelectedEvent"
-          to="/read"
-          class="nav-link"
-          :class="{ active: $route.name === 'read' }"
-          >READ</router-link
-        >
-        <router-link
-          v-if="isAuthenticated && isAdmin"
-          to="/admin"
-          class="nav-link"
-          :class="{ active: $route.name === 'admin' }"
-          >ADMIN</router-link
-        >
+        <!-- Reader view navigation -->
+        <template v-if="isAuthenticated && authStore.isReaderView">
+          <router-link
+            v-if="hasSelectedEvent"
+            to="/"
+            class="nav-link"
+            :class="{ active: $route.name === 'home' }"
+            >HOME</router-link
+          >
+          <router-link
+            v-if="hasSelectedEvent"
+            to="/read"
+            class="nav-link"
+            :class="{ active: $route.name === 'read' }"
+            >READ</router-link
+          >
+        </template>
+
+        <!-- Admin view navigation -->
+        <template v-if="isAuthenticated && isAdmin && authStore.isAdminView">
+          <router-link
+            to="/admin"
+            class="nav-link"
+            :class="{ active: $route.name === 'admin' }"
+            >ADMIN DASHBOARD</router-link
+          >
+        </template>
         <router-link v-if="!isAuthenticated" to="/auth" class="nav-link"
           >LOGIN</router-link
         >
@@ -68,6 +91,16 @@ const handleLogout = () => {
     router.push("/auth");
   }
 };
+
+const handleViewModeSwitch = (mode: "admin" | "reader") => {
+  if (mode === "reader") {
+    authStore.switchToReaderView();
+    router.push("/select-event");
+  } else {
+    authStore.switchToAdminView();
+    router.push("/admin");
+  }
+};
 </script>
 
 <style scoped>
@@ -82,12 +115,53 @@ const handleLogout = () => {
   border-bottom: 1px solid var(--border-light);
 }
 
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
 .nav-brand h1 {
   color: var(--text-primary);
   margin: 0;
   font-size: 1.8rem;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 0.5rem;
+  background: var(--bg-secondary);
+  padding: 0.25rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+}
+
+.toggle-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.toggle-btn.active {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.toggle-btn.active:hover {
+  background: #2563eb;
 }
 
 .nav-links {
@@ -99,23 +173,33 @@ const handleLogout = () => {
   color: var(--text-secondary);
   text-decoration: none;
   padding: 0.75rem 1.25rem;
-  border-radius: var(--radius-lg);
   transition: all 0.2s ease;
   font-weight: 600;
   font-size: 0.9rem;
   letter-spacing: 0.025em;
+  position: relative;
 }
 
 .nav-link:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  transform: translateY(-1px);
 }
 
 .nav-link.active,
 .nav-link.router-link-active {
+  color: var(--accent-primary);
+}
+
+.nav-link.active::after,
+.nav-link.router-link-active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  height: 2px;
   background: var(--accent-primary);
-  color: white;
+  border-radius: 1px;
 }
 
 .logout-btn {

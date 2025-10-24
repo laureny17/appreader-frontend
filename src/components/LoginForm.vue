@@ -120,6 +120,7 @@ const handleLogin = async () => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin-bottom: 1.5rem;
 }
 
 .form-group label {
@@ -182,6 +183,7 @@ const handleLogin = async () => {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  margin-bottom: 1rem;
 }
 
 .btn-primary {

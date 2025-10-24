@@ -56,6 +56,11 @@ export const useEventsStore = defineStore("events", () => {
             eventsWithDetails.push({
               ...event,
               endDate: eventDetails.endDate,
+              questions: eventDetails.questions,
+              rubric: eventDetails.rubric,
+              eligibilityCriteria: eventDetails.eligibilityCriteria,
+              requiredReadsPerApp: eventDetails.requiredReadsPerApp,
+              active: eventDetails.active,
             });
           } else {
             eventsWithDetails.push(event);
