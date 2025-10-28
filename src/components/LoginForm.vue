@@ -1,9 +1,6 @@
 <template>
   <div class="login-form">
     <div class="form-container">
-      <div class="logo">LOGO</div>
-      <h1>APPREADER</h1>
-
       <form @submit.prevent="handleLogin">
         <div class="form-group">
           <label for="email">Email</label>
@@ -192,11 +189,12 @@ const handleLogin = async () => {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #2563eb;
+  background-color: var(--accent-secondary);
 }
 
 .btn-primary:disabled {
-  background-color: var(--text-muted);
+  background-color: var(--accent-secondary);
+  opacity: 0.6;
   cursor: not-allowed;
 }
 

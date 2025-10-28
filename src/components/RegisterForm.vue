@@ -1,9 +1,6 @@
 <template>
   <div class="register-form">
     <div class="form-container">
-      <div class="logo">LOGO</div>
-      <h1>APPREADER</h1>
-
       <form @submit.prevent="handleRegister">
         <div class="form-group">
           <label for="name">Name</label>

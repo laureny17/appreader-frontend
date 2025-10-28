@@ -8,14 +8,6 @@
         ></div>
       </div>
       <div class="progress-text">{{ currentReads }}/{{ requiredReads }}</div>
-
-      <div class="header-actions">
-        <button class="btn btn-flag" title="Flag suspicious or ineligible">
-          🚩
-        </button>
-        <button class="btn btn-skip" @click="skipApplication">SKIP →</button>
-        <button class="btn btn-refresh" title="Refresh">↻</button>
-      </div>
     </div>
 
     <div v-if="applicationsStore.isLoading" class="loading">
@@ -55,8 +47,8 @@
             <span class="criterion-name">{{ criterion.name }}</span>
             <button
               class="btn btn-info"
-              @click="showRubric = criterion.id"
-              title="Hover to reveal rubric table"
+              @click="showRubric = criterion.name"
+              title="Click to show rubric details"
             >
               [?]
             </button>
@@ -66,7 +58,7 @@
               type="range"
               :min="criterion.scaleMin"
               :max="criterion.scaleMax"
-              v-model="scores[criterion.id]"
+              v-model="scores[criterion.name]"
               class="slider"
             />
             <div class="slider-labels">
@@ -79,11 +71,12 @@
       <div class="application-content">
         <div class="application-header">
           <h2>
-            APPLICANT:
-            {{ applicationsStore.currentApplication?.applicantID }} ({{
-              applicationsStore.currentApplication?.applicantYear
-            }})
+            APPLICANT: {{ applicationsStore.currentApplication?.applicantID }}
           </h2>
+          <p class="applicant-year">
+            Applicant Year:
+            {{ applicationsStore.currentApplication?.applicantYear }}
+          </p>
         </div>
 
         <div class="questions">
@@ -94,7 +87,6 @@
             :key="index"
           >
             <h3>Q{{ index + 1 }}) {{ getQuestionForIndex(index) }}</h3>
-            <p class="question-prompt">Applicant's Response:</p>
             <div
               class="answer"
               ref="answerDiv"
@@ -169,6 +161,16 @@
     </div>
 
     <div class="read-actions">
+      <div class="previous-reads">
+        <select @change="loadPreviousRead" class="previous-select">
+          <option value="">Previous reads...</option>
+          <option v-for="read in previousReads" :key="read.id" :value="read.id">
+            {{ formatTime(read.timestamp) }}
+          </option>
+        </select>
+      </div>
+      <button @click="skipApplication" class="btn btn-skip">SKIP</button>
+      <button @click="flagApplication" class="btn btn-danger">FLAG</button>
       <button @click="submitReview" class="btn btn-primary btn-large">
         SUBMIT
       </button>
@@ -178,28 +180,39 @@
     <div v-if="showRubric" class="rubric-popup" @click="showRubric = null">
       <div class="rubric-content" @click.stop>
         <div class="rubric-header">
-          <h3>Rubric Guidelines</h3>
+          <h3>Rubric Details</h3>
           <button @click="showRubric = null" class="btn btn-close">×</button>
         </div>
-        <div class="rubric-table">
-          <div class="rubric-row" v-for="i in 5" :key="i">
-            <span class="rubric-score">{{ i }}</span>
-            <span class="rubric-description">{{
-              getRubricDescription(i)
-            }}</span>
+        <div class="rubric-info" v-if="selectedCriterion">
+          <h4>{{ selectedCriterion.name }}</h4>
+          <p>{{ selectedCriterion.description }}</p>
+          <div class="rubric-scale">
+            <p>
+              <strong>Scale:</strong> {{ selectedCriterion.scaleMin }} to
+              {{ selectedCriterion.scaleMax }}
+            </p>
+          </div>
+          <div
+            v-if="
+              selectedCriterion.guidelines &&
+              selectedCriterion.guidelines.length > 0
+            "
+            class="scoring-guidelines"
+          >
+            <h4>Scoring Guidelines:</h4>
+            <div class="guidelines-list">
+              <div
+                v-for="(guideline, index) in selectedCriterion.guidelines"
+                :key="index"
+                class="guideline-item"
+              >
+                <span class="score-badge">{{ index + 1 }}</span>
+                <span class="guideline-text">{{ guideline }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- Previous Reads Dropdown -->
-    <div class="previous-reads">
-      <select @change="loadPreviousRead" class="previous-select">
-        <option value="">Previous reads...</option>
-        <option v-for="read in previousReads" :key="read.id" :value="read.id">
-          {{ formatTime(read.timestamp) }}
-        </option>
-      </select>
     </div>
   </div>
 </template>
@@ -210,6 +223,7 @@ import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useEventsStore } from "@/stores/events";
 import { useApplicationsStore } from "@/stores/applications";
+import { api, ApiError } from "@/services/api";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -235,6 +249,38 @@ const showCommentDialog = ref(false);
 const selectedText = ref("");
 const commentDialogPosition = ref({ top: "0px", left: "0px" });
 
+// Active time tracking
+const activeTimeTracker = ref({
+  lastActivityTime: 0,
+  totalActiveSeconds: 0,
+  inactivityTimeout: null as ReturnType<typeof setTimeout> | null,
+});
+
+const INACTIVITY_THRESHOLD = 30000; // 30 seconds
+
+const updateActivity = () => {
+  const now = Date.now();
+  const timeSinceLastActivity = now - activeTimeTracker.value.lastActivityTime;
+
+  if (timeSinceLastActivity <= INACTIVITY_THRESHOLD) {
+    // User is active, add this time to total
+    activeTimeTracker.value.totalActiveSeconds +=
+      (now - activeTimeTracker.value.lastActivityTime) / 1000;
+  }
+
+  activeTimeTracker.value.lastActivityTime = now;
+
+  // Clear existing timeout
+  if (activeTimeTracker.value.inactivityTimeout) {
+    clearTimeout(activeTimeTracker.value.inactivityTimeout);
+  }
+
+  // Set new timeout
+  activeTimeTracker.value.inactivityTimeout = setTimeout(() => {
+    // User is now inactive
+  }, INACTIVITY_THRESHOLD);
+};
+
 const progressPercentage = computed(() => {
   if (requiredReads.value === 0) return 0;
   return (currentReads.value / requiredReads.value) * 100;
@@ -242,51 +288,38 @@ const progressPercentage = computed(() => {
 
 // Load real data from API
 const loadApplicationData = async () => {
-  if (!eventsStore.currentEvent) return;
+  if (!eventsStore.currentEvent || !authStore.user) return;
+
+  console.log("Current event:", eventsStore.currentEvent);
+  const eventId =
+    (eventsStore.currentEvent as any).eventId ||
+    (eventsStore.currentEvent as any)._id;
+  console.log("Event ID:", eventId);
 
   try {
     // Load rubric from current event
     rubricDimensions.value = eventsStore.currentEvent.rubric || [];
 
-    // Initialize scores
+    // Initialize scores - use name as key for consistency
     scores.value = {};
     rubricDimensions.value.forEach((criterion) => {
       scores.value[criterion.name] = criterion.scaleMin;
     });
 
-    // Load required reads from current event
-    requiredReads.value = eventsStore.currentEvent.requiredReadsPerApp || 0;
+    // Reset and start active time tracking
+    activeTimeTracker.value.lastActivityTime = Date.now();
+    activeTimeTracker.value.totalActiveSeconds = 0;
 
-    // Debug: Log event data to see what we have
-    console.log("=== LOADING APPLICATION DATA ===");
-    console.log("Current event data:", eventsStore.currentEvent);
-    console.log("Event questions:", eventsStore.currentEvent.questions);
-    console.log(
-      "Questions length:",
-      eventsStore.currentEvent.questions?.length
-    );
-    console.log("Event name:", eventsStore.currentEvent.name);
-    console.log(
-      "Full event object:",
-      JSON.stringify(eventsStore.currentEvent, null, 2)
-    );
-
-    // Load applications for this event
-    await applicationsStore.loadApplicationsForEvent(
-      eventsStore.currentEvent._id
-    );
-
-    // Load the first application if available
-    console.log("Applications loaded:", applicationsStore.applications.length);
-    if (applicationsStore.applications.length > 0) {
-      const firstApp = applicationsStore.applications[0];
-      console.log("Loading first application:", firstApp);
-      await applicationsStore.loadApplication(firstApp._id);
+    // Get next assignment from API
+    try {
+      console.log("Calling getNextAssignment with:", {
+        userId: authStore.user.id,
+        eventId: eventId,
+      });
+      await applicationsStore.getNextAssignment(authStore.user.id, eventId);
+      console.log("Got assignment:", applicationsStore.currentAssignment);
       console.log("Current application:", applicationsStore.currentApplication);
-      console.log(
-        "Application answers:",
-        applicationsStore.currentApplication?.answers
-      );
+      console.log("Has application?", !!applicationsStore.currentApplication);
 
       // Set innerHTML directly for each answer
       setTimeout(() => {
@@ -309,13 +342,30 @@ const loadApplicationData = async () => {
           );
         }
       }, 100);
-    } else {
-      console.log("No applications found!");
+    } catch (err) {
+      console.error("No more assignments available:", err);
+      applicationsStore.setError(
+        "No eligible applications available for assignment. If you are an admin, you may need to be added as a verified reader for this event, or there may be no applications in this event."
+      );
+      // Cannot set currentApplication since it's readonly - the store handles this internally
     }
 
-    // TODO: Load current reads count from API
-    // const stats = await api.readerStats.getReaderStats();
-    // currentReads.value = stats.readCount;
+    // Load review progress from API
+    try {
+      const progress = await api.applications.getUserReviewProgress(
+        authStore.user.id,
+        eventId
+      );
+      currentReads.value = progress.reviewsCompleted;
+      requiredReads.value = progress.totalNeeded;
+      console.log("User progress:", progress);
+    } catch (err) {
+      console.warn("Could not load user progress:", err);
+      // Don't set error here, just skip
+    }
+
+    // Load comments for this application
+    await loadComments();
   } catch (err) {
     console.error("Error loading application data:", err);
   }
@@ -392,7 +442,53 @@ const getCommentCategoryClass = (category: string) => {
 
 // Handle text selection for user comments
 const handleTextSelection = (event: MouseEvent) => {
+  // Only allow text selection if the event target is within an answer div
+  const target = event.target as HTMLElement;
+
+  // Check if target is inside an answer div
+  const answerDivs = document.querySelectorAll(".answer");
+  let isInAnswerDiv = false;
+
+  for (const div of answerDivs) {
+    if (div.contains(target)) {
+      isInAnswerDiv = true;
+      break;
+    }
+  }
+
+  if (!isInAnswerDiv) {
+    // Clear any existing selection
+    window.getSelection()?.removeAllRanges();
+    return;
+  }
+
+  // Check if selection is entirely within answer divs
   const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+
+    // Check if the selection is within any answer div
+    let selectionInAnswer = false;
+    for (const div of answerDivs) {
+      if (
+        div.contains(
+          container.nodeType === Node.TEXT_NODE
+            ? container.parentNode
+            : (container as Node)
+        )
+      ) {
+        selectionInAnswer = true;
+        break;
+      }
+    }
+
+    if (!selectionInAnswer) {
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
+  }
+
   const selectedTextContent = selection?.toString().trim();
 
   console.log("Text selection triggered:", selectedTextContent);
@@ -499,16 +595,122 @@ const cancelComment = () => {
   window.getSelection()?.removeAllRanges();
 };
 
-const submitComment = () => {
-  if (newComment.value.trim()) {
-    userComments.value.push({
-      id: Date.now().toString(),
-      author: authStore.name || "You",
-      text: newComment.value,
-      quotedSnippet: selectedText.value,
-      timestamp: new Date(),
-    });
+const submitComment = async () => {
+  if (
+    !newComment.value.trim() ||
+    !applicationsStore.currentApplication ||
+    !authStore.user
+  )
+    return;
+
+  try {
+    await api.reviewRecords.addComment(
+      authStore.user.id,
+      applicationsStore.currentApplication._id,
+      newComment.value,
+      selectedText.value
+    );
+    // Reload comments
+    await loadComments();
     cancelComment();
+  } catch (err) {
+    console.error("Failed to save comment:", err);
+    alert("Failed to save comment. Please try again.");
+  }
+};
+
+const loadComments = async () => {
+  if (!applicationsStore.currentApplication || !authStore.user) {
+    console.log("Cannot load comments - no application or user");
+    return;
+  }
+
+  try {
+    console.log(
+      "Fetching comments for application:",
+      applicationsStore.currentApplication._id
+    );
+    const comments = await api.reviewRecords.getCommentsByApplication(
+      applicationsStore.currentApplication._id
+    );
+
+    console.log("Loaded comments response:", comments);
+
+    if (!comments || !Array.isArray(comments)) {
+      console.warn("Comments is not an array:", comments);
+      userComments.value = [];
+      return;
+    }
+
+    // Get author names for all comments - fetch all users at once if admin
+    const authorIds = [...new Set(comments.map((c) => c.author))];
+    const authorMap = new Map();
+
+    // Try to get all users at once if admin
+    try {
+      const allUsers = await api.auth.getAllUsers(authStore.user.id);
+      console.log("Fetched all users:", allUsers);
+      allUsers.forEach((user) => {
+        authorMap.set(user._id, user.name);
+      });
+    } catch (err) {
+      console.warn("Could not fetch all users:", err);
+    }
+
+    // Fill in author names
+    console.log("Author IDs to fetch:", authorIds);
+    console.log("Current author map:", Array.from(authorMap.entries()));
+
+    // Use authStore to get current user name if they're the author
+    if (authStore.user && authorIds.includes(authStore.user.id)) {
+      authorMap.set(authStore.user.id, authStore.user.name);
+      console.log(
+        `Added current user ${authStore.user.id} -> ${authStore.user.name}`
+      );
+    }
+
+    // Fetch any remaining author names
+    for (const authorId of authorIds) {
+      if (!authorMap.has(authorId)) {
+        console.log(`Fetching name for user ${authorId}...`);
+        try {
+          const name = await api.auth.getNameByUserId(authorId);
+          console.log(`Fetched name for ${authorId}:`, name);
+          if (name && name.trim()) {
+            authorMap.set(authorId, name);
+            console.log(`Set author ${authorId} to name: ${name}`);
+          } else {
+            console.warn(`No name found for user ${authorId}, keeping ID`);
+          }
+        } catch (err) {
+          console.error(`Could not fetch name for user ${authorId}:`, err);
+          // On error, keep the ID as fallback
+        }
+      } else {
+        console.log(`Author ${authorId} already in map`);
+      }
+    }
+
+    console.log("Author map:", Array.from(authorMap.entries()));
+
+    console.log("Mapping comments with author map...");
+    userComments.value = comments.map((comment) => {
+      const mappedName = authorMap.get(comment.author);
+      console.log(
+        `Comment author ${comment.author} -> ${mappedName || comment.author}`
+      );
+      return {
+        id: comment._id,
+        author: mappedName || comment.author,
+        text: comment.text,
+        quotedSnippet: comment.quotedSnippet || "",
+        timestamp: new Date(comment.timestamp),
+      };
+    });
+    console.log("Final userComments:", userComments.value);
+  } catch (err) {
+    console.error("Failed to load comments:", err);
+    userComments.value = [];
   }
 };
 
@@ -533,15 +735,89 @@ const getRubricDescription = (score: number) => {
   return descriptions[score - 1] || "";
 };
 
-const skipApplication = () => {
-  // Logic to skip current application and get next one
-  console.log("Skipping application");
+const selectedCriterion = computed(() => {
+  if (!showRubric.value) return null;
+  return rubricDimensions.value.find(
+    (criterion) => criterion.name === showRubric.value
+  );
+});
+
+const skipApplication = async () => {
+  if (!applicationsStore.currentAssignment || !authStore.user) {
+    alert("No assignment to skip.");
+    return;
+  }
+
+  try {
+    await api.applications.skipAssignment(
+      authStore.user.id,
+      applicationsStore.currentAssignment
+    );
+    // Load next application
+    await loadApplicationData();
+  } catch (err) {
+    console.error("Failed to skip application:", err);
+    alert("Failed to skip application. Please try again.");
+  }
 };
 
-const submitReview = () => {
-  // Logic to submit review
-  console.log("Submitting review with scores:", scores.value);
-  currentReads.value++;
+const flagApplication = async () => {
+  alert("Flagging functionality coming soon!");
+};
+
+const submitReview = async () => {
+  if (
+    !applicationsStore.currentApplication ||
+    !authStore.user ||
+    !applicationsStore.currentAssignment
+  ) {
+    alert("No assignment to submit.");
+    return;
+  }
+
+  try {
+    // First submit the review
+    const review = await api.applications.submitReview(
+      authStore.user.id,
+      applicationsStore.currentApplication._id,
+      new Date().toISOString()
+    );
+
+    // Then set all the scores
+    for (const [criterionName, score] of Object.entries(scores.value)) {
+      await api.applications.setScore(
+        authStore.user.id,
+        review.review,
+        criterionName,
+        Number(score)
+      );
+    }
+
+    // Finally, submit and increment
+    const activeTimeSeconds = Math.round(
+      activeTimeTracker.value.totalActiveSeconds
+    );
+    await api.applications.submitAndIncrement(
+      authStore.user.id,
+      applicationsStore.currentAssignment,
+      new Date().toISOString(),
+      activeTimeSeconds
+    );
+
+    currentReads.value++;
+    activeTimeTracker.value.totalActiveSeconds = 0;
+
+    // Load next application
+    await loadApplicationData();
+
+    alert("Review submitted successfully!");
+  } catch (err) {
+    console.error("Failed to submit review:", err);
+    alert(
+      "Failed to submit review: " +
+        (err instanceof Error ? err.message : "Please try again.")
+    );
+  }
 };
 
 const addComment = () => {
@@ -558,10 +834,38 @@ const addComment = () => {
   newComment.value = "";
 };
 
-const loadPreviousRead = (event: Event) => {
+const loadPreviousRead = async (event: Event) => {
   const target = event.target as HTMLSelectElement;
-  if (target.value) {
-    console.log("Loading previous read:", target.value);
+  const applicationId = target.value;
+  if (!applicationId) return;
+
+  try {
+    console.log("Loading previous read:", applicationId);
+
+    // Load the application
+    const appData = await api.applications.getApplication(applicationId);
+    if (!appData || appData.length === 0) {
+      alert("Could not load application");
+      return;
+    }
+
+    const app = appData[0];
+    applicationsStore.setCurrentApplication(app);
+
+    // Load AI comments
+    const aiComments = await api.applicationStorage.getAICommentsByApplication(
+      applicationId
+    );
+    applicationsStore.setAIComments(aiComments);
+
+    // Load user comments
+    await loadComments();
+
+    // Reset scores - user already reviewed this application
+    scores.value = {};
+  } catch (err) {
+    console.error("Failed to load previous read:", err);
+    alert("Failed to load application");
   }
 };
 
@@ -573,6 +877,12 @@ onMounted(async () => {
   } else {
     await loadApplicationData();
   }
+
+  // Add activity listeners for active time tracking
+  window.addEventListener("mousemove", updateActivity);
+  window.addEventListener("click", updateActivity);
+  window.addEventListener("keydown", updateActivity);
+  window.addEventListener("scroll", updateActivity);
 
   // --- Add document-level mousemove to hide tooltip if outside all highlights ---
   document.addEventListener("mousemove", (e: MouseEvent) => {
@@ -626,8 +936,9 @@ watch(
 <style scoped>
 .read-page {
   min-height: 100vh;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   padding: 1rem;
+  font-family: "Nunito", sans-serif;
 }
 
 .loading,
@@ -682,21 +993,21 @@ watch(
 }
 
 .comment-strong {
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: rgba(139, 189, 89, 0.2);
+  color: var(--text-primary);
+  border: 1px solid rgba(139, 189, 89, 0.4);
 }
 
 .comment-weak {
-  background: rgba(251, 191, 36, 0.1);
-  color: #d97706;
-  border: 1px solid rgba(251, 191, 36, 0.2);
+  background: rgba(252, 176, 90, 0.2);
+  color: var(--text-primary);
+  border: 1px solid rgba(252, 176, 90, 0.4);
 }
 
 .comment-attention {
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(255, 103, 66, 0.2);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 103, 66, 0.4);
 }
 
 .comment-default {
@@ -724,20 +1035,20 @@ watch(
 }
 
 .ai-highlight.comment-strong {
-  background: rgba(34, 197, 94, 0.3);
-  color: #16a34a;
+  background: rgba(139, 189, 89, 0.25);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .ai-highlight.comment-weak {
-  background: rgba(251, 191, 36, 0.3);
-  color: #d97706;
+  background: rgba(252, 176, 90, 0.25);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .ai-highlight.comment-attention {
-  background: rgba(239, 68, 68, 0.3);
-  color: #dc2626;
+  background: rgba(255, 103, 66, 0.25);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -779,10 +1090,10 @@ watch(
 .comment-dialog {
   position: absolute;
   z-index: 1000;
-  background: white;
-  border: 1px solid var(--border-medium);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--shadow-lg);
   padding: 1rem;
   min-width: 300px;
   max-width: 400px;
@@ -861,7 +1172,7 @@ watch(
 .progress-bar {
   flex: 1;
   height: 20px;
-  background: #ecf0f1;
+  background: var(--border-light);
   border-radius: 10px;
   overflow: hidden;
   position: relative;
@@ -869,13 +1180,13 @@ watch(
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3498db, #2ecc71);
+  background: var(--accent-primary);
   transition: width 0.3s ease;
 }
 
 .progress-text {
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--text-primary);
   min-width: 80px;
 }
 
@@ -894,14 +1205,18 @@ watch(
 }
 
 .btn-flag {
-  background: #f39c12;
+  background: var(--accent-danger);
   color: white;
   font-size: 1.2rem;
 }
 
 .btn-skip {
-  background: #e74c3c;
+  background: #fb9905;
   color: white;
+}
+
+.btn-skip:hover {
+  background: #e48a04;
 }
 
 .btn-refresh {
@@ -919,10 +1234,11 @@ watch(
 
 .scoring-panel,
 .comments-panel {
-  background: white;
+  background: var(--bg-primary);
   padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-light);
   height: fit-content;
 }
 
@@ -950,11 +1266,12 @@ watch(
 }
 
 .btn-info {
-  background: #3498db;
-  color: white;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
 }
 
 .slider-container {
@@ -965,7 +1282,7 @@ watch(
   width: 100%;
   height: 6px;
   border-radius: 3px;
-  background: #ecf0f1;
+  background: var(--border-light);
   outline: none;
   -webkit-appearance: none;
 }
@@ -976,7 +1293,7 @@ watch(
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #3498db;
+  background: var(--accent-primary);
   cursor: pointer;
 }
 
@@ -1031,9 +1348,8 @@ mark {
 .comment {
   margin-bottom: 1rem;
   padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 6px;
-  border-left: 3px solid #3498db;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
 }
 
 .comment-header {
@@ -1045,25 +1361,26 @@ mark {
 
 .commenter {
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--text-primary);
 }
 
 .comment-time {
-  color: #7f8c8d;
+  color: var(--text-muted);
 }
 
 .comment-text {
-  color: #555;
+  color: var(--text-primary);
   line-height: 1.4;
 }
 
 .quoted-snippet {
   margin-top: 0.5rem;
   padding: 0.5rem;
-  background: #e8f4fd;
-  border-radius: 4px;
+  background: rgba(111, 144, 209, 0.08);
+  border-radius: var(--radius-sm);
   font-style: italic;
-  color: #2c3e50;
+  color: var(--text-primary);
+  border-left: 3px solid var(--accent-primary);
 }
 
 .add-comment {
@@ -1087,23 +1404,59 @@ mark {
 }
 
 .read-actions {
-  text-align: center;
-  margin-bottom: 2rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  margin: 2rem 0;
+  flex-wrap: wrap;
+}
+
+.previous-reads {
+  flex-shrink: 0;
+}
+
+.read-actions .btn {
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
 .btn-large {
-  padding: 1rem 3rem;
-  font-size: 1.2rem;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
 .btn-primary {
-  background: #3498db;
+  background: var(--accent-primary);
   color: white;
 }
 
 .btn-primary:hover {
-  background: #2980b9;
+  background: var(--accent-secondary);
+}
+
+.btn-secondary {
+  background: var(--accent-secondary);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: var(--accent-primary);
+}
+
+.btn-danger {
+  background: var(--accent-danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #ff5432;
 }
 
 .rubric-popup {
@@ -1142,7 +1495,7 @@ mark {
 }
 
 .btn-close {
-  background: #e74c3c;
+  background: var(--accent-danger);
   color: white;
   width: 30px;
   height: 30px;
@@ -1177,19 +1530,125 @@ mark {
   line-height: 1.4;
 }
 
-.previous-reads {
-  position: fixed;
-  top: 100px;
-  left: 20px;
-  z-index: 100;
+.rubric-info {
+  padding: 1rem;
+}
+
+.rubric-info h4 {
+  margin-top: 0;
+  color: #2c3e50;
+}
+
+.rubric-info p {
+  line-height: 1.6;
+  color: #555;
+}
+
+.rubric-scale {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.scoring-guidelines {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid var(--accent-primary);
+}
+
+.scoring-guidelines h4 {
+  margin: 0 0 1rem 0;
+  color: #2c3e50;
+  font-size: 1.1rem;
+}
+
+.guidelines-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.guideline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.5rem;
+  border-left: 3px solid var(--accent-primary);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.score-badge {
+  min-width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  color: white;
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.guideline-text {
+  flex: 1;
+  line-height: 1.5;
+  color: #2c3e50;
+}
+
+.applicant-year {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  margin: 0 0 1.5rem 0;
+  font-weight: 600;
 }
 
 .previous-select {
-  padding: 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: white;
-  font-size: 0.9rem;
+  padding: 0.75rem 2rem;
+  padding-right: 2.5rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23211c1b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")
+    no-repeat right 1rem center;
+  color: var(--text-primary);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: "Nunito", sans-serif;
+  min-width: 200px;
+  font-weight: 600;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+.previous-select:hover {
+  background: var(--border-medium)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23211c1b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")
+    no-repeat right 1rem center;
+}
+
+.previous-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(111, 144, 209, 0.1);
+  background: var(--border-medium)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23211c1b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")
+    no-repeat right 1rem center;
+}
+
+/* Style the dropdown options */
+.previous-select option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 0.75rem 1rem;
+  font-family: "Nunito", sans-serif;
+  font-weight: 500;
+}
+
+.previous-select option:hover {
+  background: var(--bg-secondary);
 }
 
 @media (max-width: 1200px) {
@@ -1216,8 +1675,8 @@ mark {
 
 /* === FIX: make injected highlights visible === */
 :deep(.ai-highlight.comment-strong) {
-  background: rgba(34, 197, 94, 0.25);
-  color: #166534;
+  background: rgba(139, 189, 89, 0.25);
+  color: var(--text-primary);
   font-weight: 600;
   border-radius: 3px;
   padding: 0 2px;
@@ -1225,8 +1684,8 @@ mark {
 }
 
 :deep(.ai-highlight.comment-weak) {
-  background: rgba(251, 191, 36, 0.25);
-  color: #92400e;
+  background: rgba(252, 176, 90, 0.25);
+  color: var(--text-primary);
   font-weight: 600;
   border-radius: 3px;
   padding: 0 2px;
@@ -1234,8 +1693,8 @@ mark {
 }
 
 :deep(.ai-highlight.comment-attention) {
-  background: rgba(239, 68, 68, 0.25);
-  color: #991b1b;
+  background: rgba(255, 103, 66, 0.25);
+  color: var(--text-primary);
   font-weight: 600;
   border-radius: 3px;
   padding: 0 2px;

@@ -304,20 +304,17 @@ onMounted(async () => {
 
 .progress-section,
 .leaderboard-section {
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-primary);
   backdrop-filter: blur(10px);
   padding: 2rem;
-  border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(255, 182, 193, 0.2);
-  border: 1px solid rgba(255, 182, 193, 0.3);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-light);
 }
 
 .progress-section h3,
 .leaderboard-section h3 {
-  background: linear-gradient(135deg, #ff6b9d 0%, #c44569 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
   margin-bottom: 1.5rem;
   font-size: 1.25rem;
   font-weight: 700;
@@ -486,15 +483,15 @@ onMounted(async () => {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #ff6b9d 0%, #c44569 100%);
+  background: var(--accent-primary);
   color: white;
-  box-shadow: 0 4px 15px rgba(255, 107, 157, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, #e84393 0%, #d63031 100%);
+  background: var(--accent-secondary);
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(255, 107, 157, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 
 .btn-large {
