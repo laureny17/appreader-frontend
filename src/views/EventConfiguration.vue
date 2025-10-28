@@ -22,7 +22,7 @@
                   class="user-item"
                 >
                   <div class="user-info">
-                  <span class="user-name">{{ reader.name }}</span>
+                    <span class="user-name">{{ reader.name }}</span>
                     <span class="user-email">{{ reader.email }}</span>
                   </div>
                   <button
@@ -56,7 +56,7 @@
                   class="user-item"
                 >
                   <div class="user-info">
-                  <span class="user-name">{{ user.name }}</span>
+                    <span class="user-name">{{ user.name }}</span>
                     <span class="user-email">{{ user.email }}</span>
                   </div>
                   <button @click="approveUser(user.id)" class="btn btn-approve">
@@ -153,15 +153,15 @@
                 </div>
 
                 <div class="criterion-actions">
-                <button @click="saveCriterion(index)" class="btn btn-save">
-                  SAVE
-                </button>
+                  <button @click="saveCriterion(index)" class="btn btn-save">
+                    SAVE
+                  </button>
                   <button
                     @click="deleteCriterion(index)"
                     class="btn btn-delete"
                   >
                     DELETE
-                </button>
+                  </button>
                 </div>
               </div>
             </div>
@@ -199,17 +199,17 @@
               </div>
             </div>
             <div class="eligibility-actions">
-            <button @click="addEligibilityCriterion" class="btn btn-add">
-              + ADD CRITERION
-            </button>
+              <button @click="addEligibilityCriterion" class="btn btn-add">
+                + ADD CRITERION
+              </button>
               <button
                 @click="saveEligibilityCriteria"
                 class="btn btn-primary"
                 :disabled="savingCriteria"
               >
                 {{ savingCriteria ? "SAVING..." : "SAVE CHANGES" }}
-            </button>
-          </div>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -294,6 +294,259 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- CSV Import Section -->
+        <div class="csv-import-section">
+          <h2>BULK IMPORT APPLICATIONS</h2>
+
+          <div class="import-instructions">
+            <h3>Import Instructions</h3>
+            <p>Upload a CSV file with the following columns:</p>
+            <ul>
+              <li>
+                <strong>applicantID</strong> - Unique identifier for the
+                applicant
+              </li>
+              <li>
+                <strong>applicantYear</strong> - Applicant's year (e.g., "2025",
+                "Graduate", etc.)
+              </li>
+              <li>
+                <strong>Q1, Q2, Q3, ...</strong> - Answers to each question (one
+                column per question)
+              </li>
+            </ul>
+            <p>
+              <strong>Note:</strong> The number of question columns must match
+              the number of questions configured for this event.
+            </p>
+          </div>
+
+          <div class="import-controls">
+            <div class="file-upload-area">
+              <input
+                ref="fileInput"
+                type="file"
+                accept=".csv"
+                @change="handleFileSelect"
+                style="display: none"
+              />
+              <button @click="triggerFileSelect" class="btn btn-primary">
+                SELECT CSV FILE
+              </button>
+              <span v-if="selectedFile" class="selected-file">
+                Selected: {{ selectedFile.name }}
+              </span>
+            </div>
+
+            <div v-if="parsedData.length > 0" class="import-preview">
+              <h3>Import Preview ({{ parsedData.length }} applications)</h3>
+              <div class="preview-table">
+                <div class="table-header">
+                  <span class="applicant-id">Applicant ID</span>
+                  <span class="applicant-year">Year</span>
+                  <span class="answers-preview">Answers Preview</span>
+                </div>
+                <div
+                  v-for="(app, index) in parsedData.slice(0, 5)"
+                  :key="index"
+                  class="table-row"
+                >
+                  <span class="applicant-id">{{ app.applicantID }}</span>
+                  <span class="applicant-year">{{ app.applicantYear }}</span>
+                  <span class="answers-preview">
+                    {{ app.answers.slice(0, 2).join(", ") }}
+                    {{ app.answers.length > 2 ? "..." : "" }}
+                  </span>
+                </div>
+                <div v-if="parsedData.length > 5" class="more-apps">
+                  ... and {{ parsedData.length - 5 }} more applications
+                </div>
+              </div>
+
+              <div class="import-actions">
+                <button @click="clearImport" class="btn btn-secondary">
+                  CLEAR
+                </button>
+                <button
+                  @click="confirmImport"
+                  class="btn btn-success"
+                  :disabled="isImporting"
+                >
+                  {{ isImporting ? "IMPORTING..." : "IMPORT APPLICATIONS" }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="importErrors.length > 0" class="import-errors">
+              <h3>Import Errors</h3>
+              <div class="error-list">
+                <div
+                  v-for="error in importErrors"
+                  :key="error.applicantID"
+                  class="error-item"
+                >
+                  <strong>{{ error.applicantID }}:</strong> {{ error.error }}
+                </div>
+              </div>
+            </div>
+
+            <div v-if="importSuccess" class="import-success">
+              <h3>✅ Import Successful!</h3>
+              <p>
+                {{ importStats.importedCount }} applications imported
+                successfully.
+              </p>
+              <p v-if="importStats.errors.length > 0">
+                {{ importStats.errors.length }} applications failed to import.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Flagged Applications Section -->
+        <div class="flagged-applications-section">
+          <h2>FLAGGED APPLICATIONS</h2>
+
+          <div class="flagged-actions">
+            <button @click="loadFlaggedApplications" class="btn btn-primary">
+              LOAD FLAGGED APPLICATIONS
+            </button>
+            <button
+              @click="exportDisqualifiedCSV"
+              class="btn btn-export"
+              :disabled="disqualifiedApplications.length === 0"
+            >
+              EXPORT DISQUALIFIED CSV
+            </button>
+          </div>
+
+          <!-- Flagged Applications Table -->
+          <div
+            v-if="flaggedApplications.length > 0"
+            class="flagged-table-container"
+          >
+            <h3>Currently Flagged Applications</h3>
+            <div class="flagged-table">
+              <div class="table-header">
+                <span class="applicant-id">Applicant ID</span>
+                <span class="flag-reason">Flag Reason</span>
+                <span class="flagged-by">Flagged By</span>
+                <span class="flagged-at">Flagged At</span>
+                <span class="actions">Actions</span>
+              </div>
+              <div
+                v-for="app in flaggedApplications"
+                :key="app._id"
+                class="table-row"
+              >
+                <span class="applicant-id">{{ app.applicantID }}</span>
+                <span class="flag-reason">{{ app.flagReason }}</span>
+                <span class="flagged-by">{{ app.flaggedBy }}</span>
+                <span class="flagged-at">{{ formatDate(app.flaggedAt) }}</span>
+                <div class="actions">
+                  <button
+                    @click="showDisqualifyModal(app)"
+                    class="btn btn-danger btn-small"
+                    :disabled="app.disqualified"
+                  >
+                    {{ app.disqualified ? "DISQUALIFIED" : "DISQUALIFY" }}
+                  </button>
+                  <button
+                    @click="removeApplicationFlag(app._id)"
+                    class="btn btn-warning btn-small"
+                    :disabled="app.disqualified"
+                  >
+                    REMOVE FLAG
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="flaggedApplicationsLoaded" class="empty-state">
+            No flagged applications found.
+          </div>
+
+          <!-- Disqualified Applications Table -->
+          <div
+            v-if="disqualifiedApplications.length > 0"
+            class="disqualified-table-container"
+          >
+            <h3>Disqualified Applications</h3>
+            <div class="disqualified-table">
+              <div class="table-header">
+                <span class="applicant-id">Applicant ID</span>
+                <span class="disqualification-reason"
+                  >Disqualification Reason</span
+                >
+                <span class="disqualified-by">Disqualified By</span>
+                <span class="disqualified-at">Disqualified At</span>
+              </div>
+              <div
+                v-for="app in disqualifiedApplications"
+                :key="app._id"
+                class="table-row"
+              >
+                <span class="applicant-id">{{ app.applicantID }}</span>
+                <span class="disqualification-reason">{{
+                  app.disqualificationReason
+                }}</span>
+                <span class="disqualified-by">{{ app.disqualifiedBy }}</span>
+                <span class="disqualified-at">{{
+                  formatDate(app.disqualifiedAt)
+                }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Disqualify Modal -->
+    <div
+      v-if="disqualifyModal.show"
+      class="modal-overlay"
+      @click="closeDisqualifyModal"
+    >
+      <div class="modal-content" @click.stop>
+        <button class="modal-close" @click="closeDisqualifyModal">×</button>
+        <h2>Disqualify Application</h2>
+
+        <div class="modal-section">
+          <p>
+            <strong>Applicant ID:</strong>
+            {{ disqualifyModal.application?.applicantID }}
+          </p>
+          <p>
+            <strong>Flag Reason:</strong>
+            {{ disqualifyModal.application?.flagReason }}
+          </p>
+        </div>
+
+        <div class="modal-section">
+          <label for="disqualification-reason">Disqualification Reason:</label>
+          <textarea
+            id="disqualification-reason"
+            v-model="disqualificationReason"
+            placeholder="Enter reason for disqualification..."
+            class="reason-textarea"
+            rows="4"
+          ></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button @click="closeDisqualifyModal" class="btn btn-secondary">
+            CANCEL
+          </button>
+          <button
+            @click="confirmDisqualify"
+            class="btn btn-danger"
+            :disabled="!disqualificationReason.trim()"
+          >
+            DISQUALIFY APPLICATION
+          </button>
         </div>
       </div>
     </div>
@@ -459,6 +712,58 @@ const weightedAverages = ref<
   Array<{ applicantID: string; weightedAverage: number; numReviews: number }>
 >([]);
 
+// Flagged Applications state
+const flaggedApplications = ref<
+  Array<{
+    _id: string;
+    applicantID: string;
+    applicantYear: string;
+    answers: string[];
+    flaggedBy: string;
+    flaggedAt: string;
+    flagReason: string;
+    disqualified: boolean;
+    disqualificationReason?: string;
+    disqualifiedAt?: string;
+    disqualifiedBy?: string;
+  }>
+>([]);
+
+const disqualifiedApplications = ref<
+  Array<{
+    _id: string;
+    applicantID: string;
+    disqualificationReason: string;
+    disqualifiedAt: string;
+    disqualifiedBy: string;
+  }>
+>([]);
+
+const flaggedApplicationsLoaded = ref(false);
+const disqualifyModal = ref({
+  show: false,
+  application: null as any,
+});
+const disqualificationReason = ref("");
+
+// CSV Import state
+const fileInput = ref<HTMLInputElement | null>(null);
+const selectedFile = ref<File | null>(null);
+const parsedData = ref<
+  Array<{
+    applicantID: string;
+    applicantYear: string;
+    answers: string[];
+  }>
+>([]);
+const importErrors = ref<Array<{ applicantID: string; error: string }>>([]);
+const importSuccess = ref(false);
+const isImporting = ref(false);
+const importStats = ref({
+  importedCount: 0,
+  errors: [] as Array<{ applicantID: string; error: string }>,
+});
+
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const goBack = () => {
@@ -532,7 +837,7 @@ const saveCriterion = async (index: number) => {
     });
 
     console.log("Saved criterion:", criterion);
-  expandedCriterion.value = -1;
+    expandedCriterion.value = -1;
     alert("Criterion saved successfully!");
   } catch (err) {
     console.error("Failed to save criterion:", err);
@@ -938,6 +1243,313 @@ const exportToCSV = () => {
   a.click();
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
+};
+
+// CSV Import functions
+const triggerFileSelect = () => {
+  fileInput.value?.click();
+};
+
+const handleFileSelect = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+
+  if (!file) return;
+
+  selectedFile.value = file;
+  importSuccess.value = false;
+  importErrors.value = [];
+
+  try {
+    const text = await file.text();
+    const parsed = parseCSV(text);
+    parsedData.value = parsed;
+  } catch (err) {
+    console.error("Failed to parse CSV:", err);
+    alert("Failed to parse CSV file. Please check the format and try again.");
+  }
+};
+
+const parseCSV = (
+  csvText: string
+): Array<{
+  applicantID: string;
+  applicantYear: string;
+  answers: string[];
+}> => {
+  const lines = csvText.split("\n").filter((line) => line.trim());
+  if (lines.length < 2) {
+    throw new Error("CSV must have at least a header row and one data row");
+  }
+
+  const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
+  const dataLines = lines.slice(1);
+
+  // Validate headers
+  if (!headers.includes("applicantID")) {
+    throw new Error("CSV must have an 'applicantID' column");
+  }
+  if (!headers.includes("applicantYear")) {
+    throw new Error("CSV must have an 'applicantYear' column");
+  }
+
+  // Find question columns (Q1, Q2, Q3, etc.)
+  const questionColumns = headers.filter((h) => h.match(/^Q\d+$/)).sort();
+  const expectedQuestions = eventQuestions.value.length;
+
+  if (questionColumns.length !== expectedQuestions) {
+    throw new Error(
+      `Expected ${expectedQuestions} question columns (Q1, Q2, ...) but found ${questionColumns.length}`
+    );
+  }
+
+  const parsed: Array<{
+    applicantID: string;
+    applicantYear: string;
+    answers: string[];
+  }> = [];
+
+  for (let i = 0; i < dataLines.length; i++) {
+    const line = dataLines[i];
+    const values = parseCSVLine(line);
+
+    if (values.length !== headers.length) {
+      throw new Error(
+        `Row ${i + 2} has ${values.length} columns but header has ${
+          headers.length
+        } columns`
+      );
+    }
+
+    const row: any = {};
+    headers.forEach((header, index) => {
+      row[header] = values[index];
+    });
+
+    // Validate required fields
+    if (!row.applicantID || !row.applicantYear) {
+      throw new Error(
+        `Row ${i + 2} is missing required fields (applicantID or applicantYear)`
+      );
+    }
+
+    // Extract answers in order
+    const answers = questionColumns.map((q) => row[q] || "");
+
+    parsed.push({
+      applicantID: row.applicantID,
+      applicantYear: row.applicantYear,
+      answers: answers,
+    });
+  }
+
+  return parsed;
+};
+
+const parseCSVLine = (line: string): string[] => {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        // Escaped quote
+        current += '"';
+        i++; // Skip next quote
+      } else {
+        // Toggle quote state
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      // End of field
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+
+  // Add last field
+  result.push(current.trim());
+
+  return result;
+};
+
+const clearImport = () => {
+  selectedFile.value = null;
+  parsedData.value = [];
+  importErrors.value = [];
+  importSuccess.value = false;
+  if (fileInput.value) {
+    fileInput.value.value = "";
+  }
+};
+
+const confirmImport = async () => {
+  if (
+    !currentEventId.value ||
+    !authStore.user ||
+    parsedData.value.length === 0
+  ) {
+    return;
+  }
+
+  isImporting.value = true;
+  importSuccess.value = false;
+  importErrors.value = [];
+
+  try {
+    const result = await api.applications.bulkImportApplications(
+      currentEventId.value,
+      parsedData.value,
+      authStore.user.id
+    );
+
+    importStats.value = {
+      importedCount: result.importedCount,
+      errors: result.errors,
+    };
+
+    if (result.errors.length > 0) {
+      importErrors.value = result.errors;
+    }
+
+    importSuccess.value = true;
+
+    // Clear the import data after successful import
+    setTimeout(() => {
+      clearImport();
+    }, 3000);
+  } catch (err) {
+    console.error("Failed to import applications:", err);
+    alert("Failed to import applications. Please try again.");
+  } finally {
+    isImporting.value = false;
+  }
+};
+
+// Flagged Applications functions
+const loadFlaggedApplications = async () => {
+  if (!currentEventId.value || !authStore.user) return;
+
+  try {
+    const flagged = await api.applications.getFlaggedApplications(
+      currentEventId.value
+    );
+    flaggedApplications.value = flagged;
+    flaggedApplicationsLoaded.value = true;
+
+    // Also load disqualified applications
+    const disqualified = await api.applications.getDisqualifiedApplications(
+      currentEventId.value
+    );
+    disqualifiedApplications.value = disqualified;
+  } catch (err) {
+    console.error("Failed to load flagged applications:", err);
+    alert("Failed to load flagged applications. Please try again.");
+  }
+};
+
+const showDisqualifyModal = (application: any) => {
+  disqualifyModal.value = {
+    show: true,
+    application: application,
+  };
+  disqualificationReason.value = "";
+};
+
+const closeDisqualifyModal = () => {
+  disqualifyModal.value = {
+    show: false,
+    application: null,
+  };
+  disqualificationReason.value = "";
+};
+
+const confirmDisqualify = async () => {
+  if (!disqualifyModal.value.application || !authStore.user) return;
+
+  try {
+    await api.applications.disqualifyApplication(
+      disqualifyModal.value.application._id,
+      disqualificationReason.value,
+      authStore.user.id
+    );
+
+    // Reload flagged applications to update the UI
+    await loadFlaggedApplications();
+
+    closeDisqualifyModal();
+    alert("Application disqualified successfully!");
+  } catch (err) {
+    console.error("Failed to disqualify application:", err);
+    alert("Failed to disqualify application. Please try again.");
+  }
+};
+
+const removeApplicationFlag = async (applicationId: string) => {
+  if (!authStore.user) return;
+
+  if (
+    !confirm("Are you sure you want to remove the flag from this application?")
+  ) {
+    return;
+  }
+
+  try {
+    await api.applications.removeFlag(applicationId, authStore.user.id);
+
+    // Reload flagged applications to update the UI
+    await loadFlaggedApplications();
+
+    alert("Flag removed successfully!");
+  } catch (err) {
+    console.error("Failed to remove flag:", err);
+    alert("Failed to remove flag. Please try again.");
+  }
+};
+
+const exportDisqualifiedCSV = () => {
+  if (disqualifiedApplications.value.length === 0) return;
+
+  const headers = [
+    "Applicant ID",
+    "Disqualification Reason",
+    "Disqualified By",
+    "Disqualified At",
+  ];
+  const rows = disqualifiedApplications.value.map((app) => [
+    app.applicantID,
+    app.disqualificationReason,
+    app.disqualifiedBy,
+    formatDate(app.disqualifiedAt),
+  ]);
+
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+  ].join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv" });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${eventName.value}_disqualified_applications.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
+const formatDate = (dateString: string): string => {
+  return (
+    new Date(dateString).toLocaleDateString() +
+    " " +
+    new Date(dateString).toLocaleTimeString()
+  );
 };
 
 const loadEventData = async () => {
@@ -1883,6 +2495,387 @@ onMounted(async () => {
   .weight-input {
     width: 100%;
     max-width: 100%;
+  }
+}
+
+/* CSV Import Section */
+.csv-import-section {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  padding: 2rem;
+  border: 1px solid var(--border-light);
+  margin-top: 2rem;
+}
+
+.csv-import-section h2 {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 1rem;
+}
+
+.import-instructions {
+  background: var(--bg-secondary);
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  margin-bottom: 2rem;
+}
+
+.import-instructions h3 {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.import-instructions ul {
+  margin: 1rem 0;
+  padding-left: 1.5rem;
+}
+
+.import-instructions li {
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.import-instructions p {
+  color: var(--text-secondary);
+  margin: 0.5rem 0;
+}
+
+.import-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.file-upload-area {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.selected-file {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.import-preview {
+  background: var(--bg-secondary);
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.import-preview h3 {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.preview-table {
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.preview-table .table-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-medium);
+}
+
+.preview-table .table-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-light);
+  align-items: center;
+}
+
+.preview-table .table-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.more-apps {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-style: italic;
+  background: var(--bg-tertiary);
+}
+
+.import-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.btn-success {
+  background: var(--accent-success);
+  color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #7aa94c;
+}
+
+.btn-success:disabled {
+  background: var(--border-medium);
+  cursor: not-allowed;
+}
+
+.import-errors {
+  background: #fdf2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+}
+
+.import-errors h3 {
+  color: #dc2626;
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.error-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.error-item {
+  color: #dc2626;
+  font-size: 0.9rem;
+}
+
+.import-success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+}
+
+.import-success h3 {
+  color: #16a34a;
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.import-success p {
+  color: #16a34a;
+  margin: 0.5rem 0;
+}
+
+@media (max-width: 768px) {
+  .file-upload-area {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .preview-table .table-header,
+  .preview-table .table-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .import-actions {
+    flex-direction: column;
+  }
+}
+
+/* Flagged Applications Section */
+.flagged-applications-section {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  padding: 2rem;
+  border: 1px solid var(--border-light);
+  margin-top: 2rem;
+}
+
+.flagged-applications-section h2 {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 1rem;
+}
+
+.flagged-actions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.flagged-table-container,
+.disqualified-table-container {
+  margin-bottom: 2rem;
+}
+
+.flagged-table-container h3,
+.disqualified-table-container h3 {
+  color: var(--text-primary);
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.flagged-table,
+.disqualified-table {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+}
+
+.flagged-table .table-header,
+.disqualified-table .table-header {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr 1fr 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-medium);
+}
+
+.disqualified-table .table-header {
+  grid-template-columns: 1fr 2fr 1fr 1fr;
+}
+
+.flagged-table .table-row,
+.disqualified-table .table-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr 1fr 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-light);
+  align-items: center;
+}
+
+.disqualified-table .table-row {
+  grid-template-columns: 1fr 2fr 1fr 1fr;
+}
+
+.flagged-table .table-row:hover,
+.disqualified-table .table-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.flagged-table .actions,
+.disqualified-table .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.btn-danger {
+  background: var(--accent-danger);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ff5432;
+}
+
+.btn-danger:disabled {
+  background: var(--border-medium);
+  cursor: not-allowed;
+}
+
+.btn-warning {
+  background: #f39c12;
+  color: white;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: #e67e22;
+}
+
+.btn-warning:disabled {
+  background: var(--border-medium);
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--border-medium);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--border-dark);
+}
+
+.modal-section {
+  margin-bottom: 1.5rem;
+}
+
+.modal-section label {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.reason-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.reason-textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  margin-top: 2rem;
+}
+
+@media (max-width: 768px) {
+  .flagged-actions {
+    flex-direction: column;
+  }
+
+  .flagged-table .table-header,
+  .flagged-table .table-row,
+  .disqualified-table .table-header,
+  .disqualified-table .table-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .flagged-table .actions,
+  .disqualified-table .actions {
+    flex-direction: column;
+  }
+
+  .modal-actions {
+    flex-direction: column;
   }
 }
 </style>

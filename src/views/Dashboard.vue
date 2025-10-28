@@ -1,119 +1,148 @@
 <template>
   <div class="dashboard">
     <div class="dashboard-header">
-      <h1>Dashboard</h1>
+      <h1>Reader Dashboard</h1>
       <div class="user-info">
-        <span>Welcome, {{ username }}!</span>
+        <span>Welcome, {{ authStore.user?.name || "Reader" }}!</span>
         <button @click="handleLogout" class="btn btn-secondary">Logout</button>
       </div>
     </div>
 
-    <div class="dashboard-content">
+    <div v-if="!eventsStore.currentEvent" class="no-event">
+      <p>Please select an event to view your dashboard.</p>
+      <button @click="$router.push('/select-event')" class="btn btn-primary">
+        Select Event
+      </button>
+    </div>
+
+    <div v-else class="dashboard-content">
+      <div class="event-info">
+        <h2>{{ eventsStore.currentEvent.name }}</h2>
+        <p v-if="eventsStore.currentEvent.description">
+          {{ eventsStore.currentEvent.description }}
+        </p>
+      </div>
+
       <div class="stats-grid">
         <div class="stat-card">
-          <h3>Applications</h3>
-          <p class="stat-number">{{ applications.length }}</p>
+          <h3>Apps Read</h3>
+          <p class="stat-number">{{ myStats.readCount }}</p>
+          <p class="stat-label">out of {{ requiredReadsPerReader }} required</p>
         </div>
         <div class="stat-card">
-          <h3>Reviews</h3>
-          <p class="stat-number">{{ reviews.length }}</p>
+          <h3>Apps Skipped</h3>
+          <p class="stat-number">{{ myStats.skipCount }}</p>
+          <p class="stat-label">applications skipped</p>
         </div>
         <div class="stat-card">
-          <h3>Assignments</h3>
-          <p class="stat-number">{{ totalAssignments }}</p>
+          <h3>Average Time</h3>
+          <p class="stat-number">{{ Math.round(myStats.averageTime) }}s</p>
+          <p class="stat-label">per application</p>
+        </div>
+        <div class="stat-card">
+          <h3>Progress</h3>
+          <p class="stat-number">{{ Math.round(progressPercentage) }}%</p>
+          <div class="progress-bar">
+            <div
+              class="progress-fill"
+              :style="{ width: progressPercentage + '%' }"
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scatter-plot-section">
+        <h2>Reader Comparison</h2>
+        <div class="plot-container">
+          <div
+            class="plot-point"
+            v-for="reader in readerStatsStore.readers"
+            :key="reader.userId"
+            :style="getPointStyle(reader)"
+            :title="`${reader.name}: ${reader.readCount} reads, ${Math.round(reader.averageTime)}s avg`"
+          >
+            <span v-if="reader.userId === authStore.user?.id" class="user-indicator"
+              >👁</span
+            >
+          </div>
+        </div>
+        <div class="plot-axes">
+          <div class="axis-label axis-x"># Reads</div>
+          <div class="axis-label axis-y">Avg Time</div>
         </div>
       </div>
 
       <div class="actions-section">
         <h2>Quick Actions</h2>
         <div class="action-buttons">
-          <button @click="showCreateApplication = true" class="btn btn-primary">
-            Create Application
+          <button
+            @click="startReading"
+            class="btn btn-primary"
+            :disabled="applicationsStore.isLoading"
+          >
+            {{ applicationsStore.isLoading ? "Loading..." : "Start Reading" }}
           </button>
-          <button @click="loadApplications" class="btn btn-secondary">
-            Refresh Data
+          <button
+            @click="refreshData"
+            class="btn btn-secondary"
+            :disabled="isRefreshing"
+          >
+            {{ isRefreshing ? "Refreshing..." : "Refresh Data" }}
           </button>
         </div>
       </div>
 
-      <div class="applications-section">
-        <h2>Applications</h2>
-        <div v-if="applications.length === 0" class="empty-state">
-          <p>
-            No applications yet. Create your first application to get started!
-          </p>
+      <div class="leaderboard-section">
+        <h2>Reader Leaderboard</h2>
+        <div v-if="readerStatsStore.isLoading" class="loading">
+          <p>Loading leaderboard...</p>
         </div>
-        <div v-else class="applications-grid">
+        <div
+          v-else-if="readerStatsStore.sortedReaders.length === 0"
+          class="empty-state"
+        >
+          <p>No reader stats available yet.</p>
+        </div>
+        <div v-else class="leaderboard">
+          <div class="leaderboard-header">
+            <div class="rank-header">Rank</div>
+            <div class="name-header">Reader</div>
+            <div class="stats-header">Apps Read</div>
+            <div class="stats-header">Apps Skipped</div>
+            <div class="stats-header">Avg Time</div>
+            <div class="progress-header">Progress</div>
+          </div>
           <div
-            v-for="application in applications"
-            :key="application.id"
-            class="application-card"
+            v-for="(reader, index) in readerStatsStore.sortedReaders"
+            :key="reader.userId"
+            class="leaderboard-item"
+            :class="{ 'current-user': reader.userId === authStore.user?.id }"
           >
-            <h3>{{ application.id }}</h3>
-            <p class="application-content">
-              {{ application.content.substring(0, 100) }}...
-            </p>
-            <div class="application-actions">
-              <button
-                @click="viewApplication(application.id)"
-                class="btn btn-sm btn-primary"
+            <div class="rank">{{ index + 1 }}</div>
+            <div class="reader-info">
+              <div class="name">{{ reader.name }}</div>
+            </div>
+            <div class="stats">{{ reader.readCount }}</div>
+            <div class="stats">{{ reader.skipCount }}</div>
+            <div class="stats">{{ Math.round(reader.averageTime) }}s</div>
+            <div class="progress">
+              <div class="progress-bar-small">
+                <div
+                  class="progress-fill-small"
+                  :style="{ width: getReaderProgress(reader) + '%' }"
+                ></div>
+              </div>
+              <span class="progress-text"
+                >{{ Math.round(getReaderProgress(reader)) }}%</span
               >
-                View
-              </button>
-              <button
-                @click="editApplication(application.id)"
-                class="btn btn-sm btn-secondary"
-              >
-                Edit
-              </button>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Create Application Modal -->
-    <div
-      v-if="showCreateApplication"
-      class="modal-overlay"
-      @click="showCreateApplication = false"
-    >
-      <div class="modal" @click.stop>
-        <h3>Create New Application</h3>
-        <form @submit.prevent="createApplication">
-          <div class="form-group">
-            <label for="applicationId">Application ID</label>
-            <input
-              id="applicationId"
-              v-model="newApplicationId"
-              type="text"
-              required
-              placeholder="Enter application ID"
-            />
-          </div>
-          <div class="form-group">
-            <label for="applicationContent">Content</label>
-            <textarea
-              id="applicationContent"
-              v-model="newApplicationContent"
-              required
-              rows="6"
-              placeholder="Enter application content"
-            ></textarea>
-          </div>
-          <div class="modal-actions">
-            <button
-              type="button"
-              @click="showCreateApplication = false"
-              class="btn btn-secondary"
-            >
-              Cancel
-            </button>
-            <button type="submit" :disabled="isLoading" class="btn btn-primary">
-              {{ isLoading ? "Creating..." : "Create" }}
-            </button>
-          </div>
-        </form>
+      <div v-if="applicationsStore.error" class="error-message">
+        <p>{{ applicationsStore.error }}</p>
+        <button @click="refreshData" class="btn btn-secondary">Retry</button>
       </div>
     </div>
   </div>
@@ -124,26 +153,46 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useApplicationsStore } from "@/stores/applications";
-import { useReviewsStore } from "@/stores/reviews";
+import { useEventsStore } from "@/stores/events";
+import { useReaderStatsStore } from "@/stores/readerStats";
+import { api } from "@/services/api";
 
 const router = useRouter();
 const authStore = useAuthStore();
 const applicationsStore = useApplicationsStore();
-const reviewsStore = useReviewsStore();
+const eventsStore = useEventsStore();
+const readerStatsStore = useReaderStatsStore();
 
-const showCreateApplication = ref(false);
-const newApplicationId = ref("");
-const newApplicationContent = ref("");
+const isRefreshing = ref(false);
+const requiredReads = ref(0);
+const totalApplications = ref(0);
+const verifiedReadersCount = ref(0);
 
-const username = computed(() => authStore.username);
-const applications = computed(() => applicationsStore.applications);
-const reviews = computed(() => reviewsStore.reviews);
-const isLoading = computed(() => applicationsStore.isLoading);
-const totalAssignments = computed(() => {
-  return applications.value.reduce(
-    (total, app) => total + (app.assignments?.length || 0),
-    0
+const myStats = computed(() => {
+  const myUserId = authStore.user?.id;
+  const myReader = readerStatsStore.readers.find((r) => r.userId === myUserId);
+  return (
+    myReader || {
+      userId: myUserId || "",
+      name: authStore.user?.name || "You",
+      readCount: 0,
+      skipCount: 0,
+      averageTime: 0,
+    }
   );
+});
+
+const requiredReadsPerReader = computed(() => {
+  if (!eventsStore.currentEvent || verifiedReadersCount.value === 0) return 0;
+  const readsPerApp = eventsStore.currentEvent.requiredReadsPerApp;
+  return Math.ceil(
+    (readsPerApp * totalApplications.value) / verifiedReadersCount.value
+  );
+});
+
+const progressPercentage = computed(() => {
+  if (requiredReadsPerReader.value === 0) return 0;
+  return (myStats.value.readCount / requiredReadsPerReader.value) * 100;
 });
 
 const handleLogout = () => {
@@ -151,38 +200,97 @@ const handleLogout = () => {
   router.push("/auth");
 };
 
-const loadApplications = async () => {
-  // This would typically load from a list endpoint
-  // For now, we'll just refresh the current applications
-  console.log("Refreshing applications...");
+const startReading = () => {
+  router.push("/read");
 };
 
-const createApplication = async () => {
+const refreshData = async () => {
+  if (!authStore.user || !eventsStore.currentEvent) return;
+
+  isRefreshing.value = true;
   try {
-    await applicationsStore.saveApplication(
-      newApplicationId.value,
-      newApplicationContent.value
-    );
-    showCreateApplication.value = false;
-    newApplicationId.value = "";
-    newApplicationContent.value = "";
+    const eventId =
+      eventsStore.currentEvent.eventId || eventsStore.currentEvent._id;
+
+    // Load applications for the current event
+    await applicationsStore.loadApplicationsForEvent(eventId);
+
+    // Load total applications count
+    await loadApplicationsCount(eventId);
+
+    // Load verified readers count
+    await loadVerifiedReadersCount(eventId);
+
+    // Load user progress to get required reads
+    await loadUserProgress();
+
+    // Load reader stats for leaderboard
+    await readerStatsStore.loadReaderStats(eventId);
   } catch (err) {
-    console.error("Failed to create application:", err);
+    console.error("Failed to refresh data:", err);
+  } finally {
+    isRefreshing.value = false;
   }
 };
 
-const viewApplication = (applicationId: string) => {
-  router.push(`/applications/${applicationId}`);
+const loadApplicationsCount = async (eventId: string) => {
+  try {
+    const applications = await api.applicationStorage.getApplicationsByEvent(
+      eventId
+    );
+    totalApplications.value = applications.length;
+  } catch (err) {
+    console.error("Failed to load applications count:", err);
+    totalApplications.value = 0;
+  }
 };
 
-const editApplication = (applicationId: string) => {
-  router.push(`/applications/${applicationId}/edit`);
+const loadVerifiedReadersCount = async (eventId: string) => {
+  try {
+    const verifiedReaders = await api.eventDirectory.getVerifiedReadersForEvent(
+      eventId
+    );
+    verifiedReadersCount.value = verifiedReaders.length;
+  } catch (err) {
+    console.error("Failed to load verified readers count:", err);
+    verifiedReadersCount.value = 0;
+  }
 };
 
-onMounted(() => {
+const loadUserProgress = async () => {
+  if (!authStore.user || !eventsStore.currentEvent) return;
+
+  try {
+    const eventId =
+      eventsStore.currentEvent.eventId || eventsStore.currentEvent._id;
+    const progress = await api.applications.getUserReviewProgress(
+      authStore.user.id,
+      eventId
+    );
+    requiredReads.value = progress.totalNeeded;
+  } catch (err) {
+    console.error("Failed to load user progress:", err);
+    requiredReads.value = 0;
+  }
+};
+
+const getReaderProgress = (reader: any) => {
+  if (requiredReadsPerReader.value === 0) return 0;
+  return (reader.readCount / requiredReadsPerReader.value) * 100;
+};
+
+onMounted(async () => {
   if (!authStore.isAuthenticated) {
     router.push("/auth");
+    return;
   }
+
+  if (!eventsStore.currentEvent) {
+    router.push("/select-event");
+    return;
+  }
+
+  await refreshData();
 });
 </script>
 
@@ -199,18 +307,46 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 2rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .dashboard-header h1 {
-  color: #2c3e50;
+  color: var(--text-primary);
   margin: 0;
+  font-family: "Kufam", sans-serif;
 }
 
 .user-info {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+.no-event {
+  text-align: center;
+  padding: 3rem;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.event-info {
+  background: var(--bg-primary);
+  padding: 1.5rem;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 2rem;
+}
+
+.event-info h2 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-family: "Kufam", sans-serif;
+}
+
+.event-info p {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 .stats-grid {
@@ -221,37 +357,63 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: white;
+  background: var(--bg-primary);
   padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   text-align: center;
+  border: 1px solid var(--border-light);
 }
 
 .stat-card h3 {
   margin: 0 0 0.5rem 0;
-  color: #555;
+  color: var(--text-secondary);
   font-size: 1rem;
+  font-family: "Nunito", sans-serif;
 }
 
 .stat-number {
   font-size: 2rem;
   font-weight: bold;
-  color: #2c3e50;
+  color: var(--text-primary);
   margin: 0;
+  font-family: "Kufam", sans-serif;
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0.5rem 0 0 0;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--border-light);
+  border-radius: 4px;
+  margin-top: 0.5rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.3s ease;
 }
 
 .actions-section {
-  background: white;
+  background: var(--bg-primary);
   padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   margin-bottom: 2rem;
+  border: 1px solid var(--border-light);
 }
 
 .actions-section h2 {
   margin: 0 0 1rem 0;
-  color: #2c3e50;
+  color: var(--text-primary);
+  font-family: "Kufam", sans-serif;
 }
 
 .action-buttons {
@@ -260,146 +422,150 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.applications-section {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.applications-section h2 {
-  margin: 0 0 1rem 0;
-  color: #2c3e50;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 3rem;
-  color: #666;
-}
-
-.applications-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1rem;
-}
-
-.application-card {
-  border: 1px solid #eee;
-  border-radius: 8px;
+.error-message {
+  background: rgba(255, 103, 66, 0.1);
+  border: 1px solid var(--accent-danger);
+  border-radius: var(--radius-md);
   padding: 1rem;
-  transition: box-shadow 0.2s;
-}
-
-.application-card:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.application-card h3 {
-  margin: 0 0 0.5rem 0;
-  color: #2c3e50;
-}
-
-.application-content {
-  color: #666;
-  margin: 0 0 1rem 0;
-  line-height: 1.4;
-}
-
-.application-actions {
-  display: flex;
-  gap: 0.5rem;
+  color: var(--accent-danger);
 }
 
 .btn {
-  padding: 0.5rem 1rem;
+  padding: 0.75rem 1.5rem;
   border: none;
-  border-radius: 4px;
-  font-weight: 500;
+  border-radius: var(--radius-md);
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  font-family: "Nunito", sans-serif;
 }
 
 .btn-primary {
-  background-color: #3498db;
+  background: var(--accent-primary);
   color: white;
 }
 
-.btn-primary:hover {
-  background-color: #2980b9;
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-secondary);
+}
+
+.btn-primary:disabled {
+  background: #ccc;
+  color: #666;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
-  background-color: #95a5a6;
+  background: var(--accent-secondary);
   color: white;
 }
 
-.btn-secondary:hover {
-  background-color: #7f8c8d;
+.btn-secondary:hover:not(:disabled) {
+  background: var(--accent-primary);
 }
 
-.btn-sm {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.875rem;
+.leaderboard-section {
+  background: var(--bg-primary);
+  padding: 1.5rem;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 2rem;
+  border: 1px solid var(--border-light);
 }
 
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+.leaderboard-section h2 {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-family: "Kufam", sans-serif;
 }
 
-.modal {
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal h3 {
-  margin: 0 0 1.5rem 0;
-  color: #2c3e50;
-}
-
-.form-group {
-  margin-bottom: 1rem;
-}
-
-.form-group label {
-  display: block;
+.leaderboard-header {
+  display: grid;
+  grid-template-columns: 60px 1fr 80px 80px 80px 120px;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
   margin-bottom: 0.5rem;
-  color: #555;
+}
+
+.leaderboard-item {
+  display: grid;
+  grid-template-columns: 60px 1fr 80px 80px 80px 120px;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  margin-bottom: 0.5rem;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.leaderboard-item:hover {
+  background: var(--bg-secondary);
+}
+
+.leaderboard-item.current-user {
+  background: rgba(255, 103, 66, 0.1);
+  border-color: var(--accent-primary);
+}
+
+.rank {
+  font-weight: bold;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.reader-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stats {
+  text-align: center;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
-.form-group input,
-.form-group textarea {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 1rem;
-}
-
-.form-group textarea {
-  resize: vertical;
-  min-height: 120px;
-}
-
-.modal-actions {
+.progress {
   display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-  margin-top: 1.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.progress-bar-small {
+  flex: 1;
+  height: 6px;
+  background: var(--border-light);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill-small {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  min-width: 35px;
+}
+
+.loading,
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
 }
 </style>
