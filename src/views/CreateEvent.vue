@@ -117,6 +117,38 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label>Eligibility Criteria</label>
+          <div class="criteria-list">
+            <div
+              v-for="(criterion, index) in eventData.eligibilityCriteria"
+              :key="index"
+              class="criterion-item"
+            >
+              <input
+                v-model="eventData.eligibilityCriteria[index]"
+                type="text"
+                placeholder="Eligibility criterion"
+                class="criterion-input"
+              />
+              <button
+                type="button"
+                @click="removeEligibilityCriterion(index)"
+                class="btn btn-remove-small"
+              >
+                ×
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="addEligibilityCriterion"
+              class="btn btn-add"
+            >
+              + Add Eligibility Criterion
+            </button>
+          </div>
+        </div>
+
         <div class="form-actions">
           <button
             type="button"
@@ -156,14 +188,17 @@ const eventData = ref({
     "Why do you want to attend this event?",
     "What's your biggest technical challenge?",
   ],
+  eligibilityCriteria: [],
   rubric: [
     {
       name: "Technical Skill",
+      description: "",
       scaleMin: 1,
       scaleMax: 5,
     },
     {
       name: "Creativity",
+      description: "",
       scaleMin: 1,
       scaleMax: 5,
     },
@@ -183,6 +218,7 @@ const removeQuestion = (index: number) => {
 const addCriterion = () => {
   eventData.value.rubric.push({
     name: "",
+    description: "",
     scaleMin: 1,
     scaleMax: 5,
   });
@@ -194,33 +230,53 @@ const removeCriterion = (index: number) => {
   }
 };
 
+const addEligibilityCriterion = () => {
+  eventData.value.eligibilityCriteria.push("");
+};
+
+const removeEligibilityCriterion = (index: number) => {
+  eventData.value.eligibilityCriteria.splice(index, 1);
+};
+
 const createEvent = async () => {
   if (!authStore.user) return;
 
   isLoading.value = true;
   try {
+    const endDateValue = eventData.value.endDate
+      ? new Date(eventData.value.endDate).toISOString()
+      : undefined;
+
     await api.eventDirectory.createEvent(
       authStore.user.id,
       eventData.value.name,
       eventData.value.requiredReadsPerApp,
       eventData.value.rubric.map((c) => ({
         name: c.name,
-        description: "",
+        description: c.description || "",
         scaleMin: c.scaleMin,
         scaleMax: c.scaleMax,
       })),
-      eventData.value.questions,
-      new Date(eventData.value.endDate)
+      endDateValue,
+      eventData.value.eligibilityCriteria.length > 0
+        ? eventData.value.eligibilityCriteria
+        : undefined,
+      eventData.value.questions
     );
 
     // Refresh events list
-    await adminEventsStore.loadAllEvents();
+    await adminEventsStore.loadAllEvents(authStore.user.id);
 
     // Navigate back to admin dashboard
     router.push("/admin");
   } catch (err) {
     console.error("Failed to create event:", err);
-    alert("Failed to create event. Please try again.");
+    alert(
+      "Failed to create event: " +
+        (err instanceof Error
+          ? err.message
+          : "Please check all fields are filled correctly.")
+    );
   } finally {
     isLoading.value = false;
   }

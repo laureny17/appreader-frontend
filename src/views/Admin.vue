@@ -140,7 +140,7 @@ import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useAdminEventsStore } from "@/stores/adminEvents";
 import { useReaderStatsStore } from "@/stores/readerStats";
-import { api } from "@/services/api";
+import { api, ApiError } from "@/services/api";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -168,7 +168,7 @@ const archiveEvent = async (eventId: string) => {
     if (!event || !authStore.user) return;
 
     await api.eventDirectory.inactivateEvent(authStore.user.id, event.name);
-    await adminEventsStore.loadAllEvents(); // Refresh the events list
+    await adminEventsStore.loadAllEvents(authStore.user.id); // Refresh the events list
     console.log("Event archived successfully");
   } catch (err) {
     console.error("Failed to archive event:", err);
@@ -184,7 +184,7 @@ const activateEvent = async (eventId: string) => {
     if (!event || !authStore.user) return;
 
     await api.eventDirectory.activateEvent(authStore.user.id, event.name);
-    await adminEventsStore.loadAllEvents(); // Refresh the events list
+    await adminEventsStore.loadAllEvents(authStore.user.id); // Refresh the events list
     console.log("Event activated successfully");
   } catch (err) {
     console.error("Failed to activate event:", err);
@@ -208,12 +208,39 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
 };
 
 onMounted(async () => {
+  console.log("Admin page mounted");
+  console.log("authStore.isAuthenticated:", authStore.isAuthenticated);
+  console.log("authStore.isAdmin:", authStore.isAdmin);
+
   if (!authStore.isAuthenticated) {
     router.push("/auth");
   } else if (!authStore.isAdmin) {
+    console.log("User is not admin, redirecting");
     router.push("/");
   } else {
-    await adminEventsStore.loadAllEvents();
+    console.log("Loading events...");
+    console.log("Auth store user:", authStore.user);
+    try {
+      await adminEventsStore.loadAllEvents(authStore.user?.id);
+      console.log("Loaded events:", adminEventsStore.events.length);
+      console.log("Active events:", adminEventsStore.activeEvents.length);
+      console.log("Inactive events:", adminEventsStore.inactiveEvents.length);
+    } catch (err) {
+      console.error("Error loading events:", err);
+
+      // Check if it's a 404 error (endpoint not implemented)
+      if (err instanceof ApiError && err.status === 404) {
+        alert(
+          "The getAllEvents backend endpoint is not implemented yet.\n\n" +
+            "Please implement POST /api/EventDirectory/getAllEvents in your backend.\n\n" +
+            "See api-spec.md lines 944-982 for the API specification."
+        );
+      } else {
+        alert(
+          "Failed to load events. Please check your connection and try refreshing the page."
+        );
+      }
+    }
   }
 });
 </script>
@@ -223,7 +250,7 @@ onMounted(async () => {
   max-width: 1000px;
   margin: 0 auto;
   padding: 2rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   min-height: 100vh;
 }
 
@@ -273,7 +300,7 @@ onMounted(async () => {
 }
 
 .toggle-btn.active:hover {
-  background: #2563eb;
+  background: var(--accent-secondary);
 }
 
 .events-section {
@@ -285,9 +312,10 @@ onMounted(async () => {
 
 .active-events,
 .inactive-events {
-  background: white;
+  background: var(--bg-primary);
   padding: 2rem;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
@@ -352,32 +380,32 @@ onMounted(async () => {
 }
 
 .btn-archive {
-  background: #e74c3c;
+  background: #fb9905;
   color: white;
 }
 
 .btn-archive:hover {
-  background: #c0392b;
+  background: #e48a04;
 }
 
 .btn-activate {
-  background: #27ae60;
+  background: var(--accent-success);
   color: white;
 }
 
 .btn-activate:hover {
-  background: #229954;
+  background: #7aa94c;
 }
 
 .btn-primary {
-  background: #3498db;
+  background: var(--accent-primary);
   color: white;
   padding: 1rem 2rem;
   font-size: 1.1rem;
 }
 
 .btn-primary:hover {
-  background: #2980b9;
+  background: var(--accent-secondary);
 }
 
 .admin-actions {

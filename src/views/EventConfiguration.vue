@@ -5,22 +5,6 @@
         <button @click="goBack" class="back-btn">← Back to Events</button>
         <h1>{{ eventName }}</h1>
       </div>
-      <div class="view-toggle" v-if="authStore.isAdmin">
-        <button
-          @click="handleViewModeSwitch('admin')"
-          :class="{ active: authStore.isAdminView }"
-          class="toggle-btn"
-        >
-          ADMIN VIEW
-        </button>
-        <button
-          @click="handleViewModeSwitch('reader')"
-          :class="{ active: authStore.isReaderView }"
-          class="toggle-btn"
-        >
-          READER VIEW
-        </button>
-      </div>
     </div>
 
     <div class="config-content">
@@ -33,11 +17,14 @@
               <h3>APPROVED READERS</h3>
               <div class="user-list">
                 <div
-                  v-for="reader in approvedReaders"
+                  v-for="reader in approvedReaders.slice(0, 10)"
                   :key="reader.id"
                   class="user-item"
                 >
+                  <div class="user-info">
                   <span class="user-name">{{ reader.name }}</span>
+                    <span class="user-email">{{ reader.email }}</span>
+                  </div>
                   <button
                     @click="removeReader(reader.id)"
                     class="btn btn-remove"
@@ -48,24 +35,48 @@
                 <div v-if="approvedReaders.length === 0" class="empty-state">
                   No approved readers yet
                 </div>
+                <div v-else-if="approvedReaders.length > 10" class="user-count">
+                  Showing 10 of {{ approvedReaders.length }}
+                </div>
               </div>
             </div>
 
             <div class="user-group">
-              <h3>UNVERIFIED</h3>
+              <h3>UNVERIFIED USERS</h3>
+              <input
+                type="text"
+                v-model="unverifiedSearchTerm"
+                placeholder="Search by name or email..."
+                class="search-input"
+              />
               <div class="user-list">
                 <div
-                  v-for="user in unverifiedUsers"
+                  v-for="user in filteredUnverifiedUsers.slice(0, 10)"
                   :key="user.id"
                   class="user-item"
                 >
+                  <div class="user-info">
                   <span class="user-name">{{ user.name }}</span>
+                    <span class="user-email">{{ user.email }}</span>
+                  </div>
                   <button @click="approveUser(user.id)" class="btn btn-approve">
                     APPROVE
                   </button>
                 </div>
-                <div v-if="unverifiedUsers.length === 0" class="empty-state">
-                  No pending users
+                <div
+                  v-if="filteredUnverifiedUsers.length === 0"
+                  class="empty-state"
+                >
+                  <span v-if="unverifiedSearchTerm"
+                    >No users found matching "{{ unverifiedSearchTerm }}"</span
+                  >
+                  <span v-else>No unverified users</span>
+                </div>
+                <div
+                  v-else-if="filteredUnverifiedUsers.length > 10"
+                  class="user-count"
+                >
+                  Showing 10 of {{ filteredUnverifiedUsers.length }}
                 </div>
               </div>
             </div>
@@ -82,7 +93,7 @@
               class="criterion-panel"
             >
               <div class="criterion-header" @click="toggleCriterion(index)">
-                <h3>CRITERION {{ index + 1 }}</h3>
+                <h3>{{ criterion.name || `CRITERION ${index + 1}` }}</h3>
                 <span class="toggle-icon">{{
                   expandedCriterion === index ? "^" : "v"
                 }}</span>
@@ -90,17 +101,27 @@
 
               <div v-if="expandedCriterion === index" class="criterion-content">
                 <div class="criterion-field">
+                  <label>NAME:</label>
+                  <input
+                    v-model="criterion.name"
+                    type="text"
+                    placeholder="Criterion name"
+                    class="criterion-name-input"
+                  />
+                </div>
+
+                <div class="criterion-field">
                   <label>SCALE:</label>
                   <div class="scale-inputs">
                     <input
-                      v-model="criterion.scaleMin"
+                      v-model.number="criterion.scaleMin"
                       type="number"
                       placeholder="Min"
                       class="scale-input"
                     />
                     <span>-</span>
                     <input
-                      v-model="criterion.scaleMax"
+                      v-model.number="criterion.scaleMax"
                       type="number"
                       placeholder="Max"
                       class="scale-input"
@@ -131,9 +152,17 @@
                   </div>
                 </div>
 
+                <div class="criterion-actions">
                 <button @click="saveCriterion(index)" class="btn btn-save">
                   SAVE
                 </button>
+                  <button
+                    @click="deleteCriterion(index)"
+                    class="btn btn-delete"
+                  >
+                    DELETE
+                </button>
+                </div>
               </div>
             </div>
 
@@ -169,10 +198,189 @@
                 No eligibility criteria defined.
               </div>
             </div>
+            <div class="eligibility-actions">
             <button @click="addEligibilityCriterion" class="btn btn-add">
               + ADD CRITERION
             </button>
+              <button
+                @click="saveEligibilityCriteria"
+                class="btn btn-primary"
+                :disabled="savingCriteria"
+              >
+                {{ savingCriteria ? "SAVING..." : "SAVE CHANGES" }}
+            </button>
           </div>
+          </div>
+        </div>
+
+        <!-- Reviews & Scoring Section -->
+        <div class="reviews-section">
+          <h2>REVIEWS & SCORING</h2>
+
+          <!-- Search for Single Applicant -->
+          <div class="search-applicant-section">
+            <h3>Check Single Applicant</h3>
+            <div class="search-box">
+              <input
+                v-model="searchApplicantID"
+                type="text"
+                placeholder="Enter applicant ID or application ID"
+                class="search-input"
+              />
+              <button @click="searchApplicant" class="btn btn-search">
+                SEARCH
+              </button>
+            </div>
+          </div>
+
+          <!-- Weighted Averages -->
+          <div class="weighted-averages-section">
+            <h3>Calculate Weighted Averages & Export</h3>
+
+            <div class="weights-container">
+              <div
+                v-for="criterion in currentEventRubric"
+                :key="criterion.name"
+                class="weight-input-group"
+              >
+                <label :for="`weight-${criterion.name}`"
+                  >{{ criterion.name }}:</label
+                >
+                <input
+                  :id="`weight-${criterion.name}`"
+                  v-model.number="weights[criterion.name]"
+                  type="number"
+                  :placeholder="`0`"
+                  class="weight-input"
+                  min="0"
+                  step="0.1"
+                />
+              </div>
+            </div>
+
+            <div class="export-buttons">
+              <button
+                @click="calculateWeightedAverages"
+                class="btn btn-primary"
+              >
+                CALCULATE AVERAGES
+              </button>
+              <button
+                @click="exportToCSV"
+                class="btn btn-export"
+                :disabled="!weightedAverages.length"
+              >
+                EXPORT CSV
+              </button>
+            </div>
+
+            <!-- Display Results -->
+            <div v-if="weightedAverages.length > 0" class="results-container">
+              <h4>Calculated Averages</h4>
+              <div class="results-list">
+                <div
+                  v-for="(result, index) in weightedAverages"
+                  :key="index"
+                  class="result-item"
+                >
+                  <span class="result-app">{{ result.applicantID }}:</span>
+                  <span class="result-score">{{
+                    result.weightedAverage.toFixed(2)
+                  }}</span>
+                  <span class="result-reviews"
+                    >({{ result.numReviews }} reviews)</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal for Application Details -->
+    <div
+      v-if="searchedApplication"
+      class="modal-overlay"
+      @click="searchedApplication = null"
+    >
+      <div class="modal-content" @click.stop>
+        <button class="modal-close" @click="searchedApplication = null">
+          ×
+        </button>
+        <h2>Application Details</h2>
+
+        <div class="detail-section">
+          <p>
+            <strong>Applicant ID:</strong> {{ searchedApplication.applicantID }}
+          </p>
+          <p>
+            <strong>Applicant Year:</strong>
+            {{ searchedApplication.applicantYear }}
+          </p>
+        </div>
+
+        <h4>Questions & Answers</h4>
+        <div class="qa-list">
+          <div
+            v-for="(answer, index) in searchedApplication.answers"
+            :key="index"
+            class="qa-item"
+          >
+            <p class="question-text">
+              <strong>Q{{ index + 1 }}:</strong>
+              {{ getQuestionForIndex(index) }}
+            </p>
+            <p class="answer-text">{{ answer }}</p>
+          </div>
+        </div>
+
+        <h4>All Reviews</h4>
+        <div v-if="applicantReviews.length > 0" class="reviews-list">
+          <div
+            v-for="(review, index) in applicantReviews"
+            :key="index"
+            class="review-item-detailed"
+          >
+            <div class="review-header">
+              <div class="reviewer-info">
+                <span class="review-author"
+                  >Reviewer: {{ review.authorName }}</span
+                >
+                <span class="review-email">{{ review.authorEmail }}</span>
+              </div>
+              <div class="review-meta">
+                <span class="review-date">{{
+                  new Date(review.submittedAt).toLocaleDateString()
+                }}</span>
+                <span
+                  v-if="
+                    review.activeTime !== undefined &&
+                    review.activeTime !== null
+                  "
+                  class="review-time"
+                >
+                  Time: {{ formatTime(review.activeTime || 0) }}
+                </span>
+              </div>
+            </div>
+            <div class="review-scores">
+              <div
+                v-for="score in review.scores"
+                :key="score.criterion"
+                class="score-item-detailed"
+              >
+                <span class="criterion-name">{{ score.criterion }}:</span>
+                <span class="score-value">{{ score.value }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          v-else-if="searchedApplication && applicantReviews.length === 0"
+          class="no-reviews"
+        >
+          <p>No reviews yet for this applicant.</p>
         </div>
       </div>
     </div>
@@ -183,28 +391,75 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { useEventsStore } from "@/stores/events";
+import { api, ApiError } from "@/services/api";
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const eventsStore = useEventsStore();
 
-const eventName = ref("HackMIT 2025"); // This would come from route params or store
+const eventName = ref("HackMIT 2025");
 const expandedCriterion = ref(0);
+const currentEventId = ref<string | null>(null);
+const currentEventRubric = ref<
+  Array<{
+    name: string;
+    description: string;
+    scaleMin: number;
+    scaleMax: number;
+  }>
+>([]);
+const allApplications = ref<
+  Array<{
+    _id: string;
+    applicantID: string;
+    applicantYear: string;
+    answers: string[];
+  }>
+>([]);
 
 // Data will be loaded from API
-const approvedReaders = ref<Array<{ id: string; name: string }>>([]);
-const unverifiedUsers = ref<Array<{ id: string; name: string }>>([]);
+const approvedReaders = ref<Array<{ id: string; name: string; email: string }>>(
+  []
+);
+const unverifiedUsers = ref<Array<{ id: string; name: string; email: string }>>(
+  []
+);
 const eligibilityCriteria = ref<string[]>([]);
+const savingCriteria = ref(false);
+const eventQuestions = ref<string[]>([]);
 
 const rubric = ref<
   Array<{
     id: string;
+    name?: string;
     scaleMin: number;
     scaleMax: number;
     description: string;
     guidelines: string[];
   }>
 >([]);
+
+// New state for reviews and scoring
+interface ApplicantReview {
+  author: string;
+  authorName: string;
+  authorEmail: string;
+  submittedAt: string;
+  activeTime?: number;
+  scores: Array<{ criterion: string; value: number }>;
+}
+
+const searchApplicantID = ref("");
+const applicantReviews = ref<ApplicantReview[]>([]);
+const searchedApplication = ref<any>(null);
+const weights = ref<Record<string, number>>({});
+const weightedAverages = ref<
+  Array<{ applicantID: string; weightedAverage: number; numReviews: number }>
+>([]);
+
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const goBack = () => {
   router.push("/admin");
@@ -216,7 +471,6 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
     router.push("/select-event");
   } else {
     authStore.switchToAdminView();
-    // Already in admin view
   }
 };
 
@@ -227,44 +481,226 @@ const toggleCriterion = (index: number) => {
 const addCriterion = () => {
   const newCriterion = {
     id: Date.now().toString(),
+    name: "",
     scaleMin: 1,
     scaleMax: 5,
     description: "",
     guidelines: ["", "", "", "", ""],
   };
   rubric.value.push(newCriterion);
+
+  // Update currentEventRubric for the Reviews & Scoring section
+  currentEventRubric.value = rubric.value.map((c) => ({
+    name: c.name || "",
+    description: c.description || "",
+    scaleMin: c.scaleMin,
+    scaleMax: c.scaleMax,
+  }));
+
   expandedCriterion.value = rubric.value.length - 1;
 };
 
-const saveCriterion = (index: number) => {
-  // TODO: Save to backend
-  console.log("Saving criterion:", rubric.value[index]);
+const saveCriterion = async (index: number) => {
+  if (!currentEventId.value || !authStore.user) return;
+
+  const criterion = rubric.value[index];
+
+  try {
+    const updatedRubric = rubric.value.map((c) => ({
+      name: c.name || "Untitled",
+      description: c.description || "",
+      scaleMin: c.scaleMin,
+      scaleMax: c.scaleMax,
+      guidelines: c.guidelines || [],
+    }));
+
+    await api.eventDirectory.updateEventConfig(
+      authStore.user.id,
+      currentEventId.value,
+      undefined, // requiredReadsPerApp
+      updatedRubric
+    );
+
+    // Update currentEventRubric immediately without reloading
+    currentEventRubric.value = updatedRubric;
+
+    // Update weights for any new criteria
+    updatedRubric.forEach((criterion) => {
+      if (!(criterion.name in weights.value)) {
+        weights.value[criterion.name] = 0;
+      }
+    });
+
+    console.log("Saved criterion:", criterion);
   expandedCriterion.value = -1;
-};
-
-const approveUser = (userId: string) => {
-  // TODO: Approve user via API
-  console.log("Approving user:", userId);
-  const user = unverifiedUsers.value.find((u) => u.id === userId);
-  if (user) {
-    approvedReaders.value.push(user);
-    unverifiedUsers.value = unverifiedUsers.value.filter(
-      (u) => u.id !== userId
-    );
+    alert("Criterion saved successfully!");
+  } catch (err) {
+    console.error("Failed to save criterion:", err);
+    alert("Failed to save criterion. Please try again.");
   }
 };
 
-const removeReader = (readerId: string) => {
-  // TODO: Remove reader via API
-  console.log("Removing reader:", readerId);
-  const reader = approvedReaders.value.find((r) => r.id === readerId);
-  if (reader) {
-    unverifiedUsers.value.push(reader);
-    approvedReaders.value = approvedReaders.value.filter(
-      (r) => r.id !== readerId
+const deleteCriterion = async (index: number) => {
+  if (
+    !confirm(
+      "Are you sure you want to delete this criterion? This cannot be undone."
+    )
+  ) {
+    return;
+  }
+
+  if (!currentEventId.value || !authStore.user) return;
+
+  try {
+    const criterionToDelete = rubric.value[index];
+    const updatedRubric = rubric.value
+      .filter((_, i) => i !== index)
+      .map((c) => ({
+        name: c.name || "Untitled",
+        description: c.description || "",
+        scaleMin: c.scaleMin,
+        scaleMax: c.scaleMax,
+      }));
+
+    await api.eventDirectory.updateEventConfig(
+      authStore.user.id,
+      currentEventId.value,
+      undefined, // requiredReadsPerApp
+      updatedRubric
     );
+
+    // Update UI immediately
+    rubric.value = rubric.value.filter((_, i) => i !== index);
+    currentEventRubric.value = updatedRubric;
+
+    // Remove weight for deleted criterion
+    if (criterionToDelete.name) {
+      delete weights.value[criterionToDelete.name];
+    }
+
+    alert("Criterion deleted successfully!");
+  } catch (err) {
+    console.error("Failed to delete criterion:", err);
+    alert("Failed to delete criterion. Please try again.");
   }
 };
+
+const approveUser = async (userId: string) => {
+  if (!currentEventId.value || !authStore.user) return;
+
+  try {
+    await api.eventDirectory.addReader(
+      authStore.user.id,
+      currentEventId.value,
+      userId
+    );
+    // Reload readers
+    await loadReaders();
+  } catch (err) {
+    console.error("Failed to approve user:", err);
+    alert("Failed to approve user. Please try again.");
+  }
+};
+
+const removeReader = async (readerId: string) => {
+  if (!currentEventId.value || !authStore.user) return;
+
+  try {
+    await api.eventDirectory.removeReader(
+      authStore.user.id,
+      currentEventId.value,
+      readerId
+    );
+    // Reload readers
+    await loadReaders();
+  } catch (err) {
+    console.error("Failed to remove reader:", err);
+    alert("Failed to remove reader. Please try again.");
+  }
+};
+
+const unverifiedSearchTerm = ref("");
+
+const loadReaders = async () => {
+  if (!currentEventId.value || !authStore.user) return;
+
+  try {
+    // Get all members for the event (with verification status and names)
+    const allMembers = await api.eventDirectory.getAllMembersForEvent(
+      currentEventId.value
+    );
+
+    // Try to get all users first
+    try {
+      const allUsers = await api.auth.getAllUsers(authStore.user.id);
+
+      // Get verified readers and match with allUsers for email
+      const verifiedReaders = allMembers.filter((m) => m.verified);
+      approvedReaders.value = verifiedReaders.map((member) => {
+        const user = allUsers.find((u) => u._id === member.user);
+        return {
+          id: member.user,
+          name: member.name,
+          email: user?.email || "",
+        };
+      });
+
+      const memberUserIds = new Set(allMembers.map((m) => m.user));
+
+      // Get unverified users:
+      // 1. Users who are not members at all, OR
+      // 2. Users who are members but verified: false
+      const unverifiedMembers = allMembers.filter((m) => !m.verified);
+      const nonMemberUserIds = allUsers
+        .filter((user) => !memberUserIds.has(user._id))
+        .map((user) => user._id);
+
+      unverifiedUsers.value = [
+        ...unverifiedMembers.map((member) => {
+          const user = allUsers.find((u) => u._id === member.user);
+          return {
+            id: member.user,
+            name: member.name,
+            email: user?.email || member.user,
+          };
+        }),
+        ...allUsers
+          .filter((user) => nonMemberUserIds.includes(user._id))
+          .map((user) => ({
+            id: user._id,
+            name: user.name,
+            email: user.email,
+          })),
+      ];
+    } catch (err) {
+      console.error(
+        "Could not get all users, falling back to members only:",
+        err
+      );
+      // Fallback: just show unverified members
+      const unverifiedReaders = allMembers.filter((m) => !m.verified);
+      unverifiedUsers.value = unverifiedReaders.map((member) => ({
+        id: member.user,
+        name: member.name,
+        email: "",
+      }));
+    }
+  } catch (err) {
+    console.error("Failed to load readers:", err);
+  }
+};
+
+const filteredUnverifiedUsers = computed(() => {
+  if (!unverifiedSearchTerm.value) return unverifiedUsers.value;
+
+  const search = unverifiedSearchTerm.value.toLowerCase();
+  return unverifiedUsers.value.filter(
+    (user) =>
+      user.name.toLowerCase().includes(search) ||
+      user.email.toLowerCase().includes(search) ||
+      user.id.toLowerCase().includes(search)
+  );
+});
 
 const addEligibilityCriterion = () => {
   eligibilityCriteria.value.push("");
@@ -274,11 +710,295 @@ const removeCriterion = (index: number) => {
   eligibilityCriteria.value.splice(index, 1);
 };
 
-onMounted(() => {
+const saveEligibilityCriteria = async () => {
+  if (!currentEventId.value || !authStore.user) return;
+
+  savingCriteria.value = true;
+  try {
+    await api.eventDirectory.updateEventConfig(
+      authStore.user.id,
+      currentEventId.value,
+      undefined, // requiredReadsPerApp
+      undefined, // rubric
+      eligibilityCriteria.value
+    );
+    alert("✅ Eligibility criteria saved successfully!");
+  } catch (err) {
+    console.error("Failed to save eligibility criteria:", err);
+    alert("Failed to save eligibility criteria. Please try again.");
+  } finally {
+    savingCriteria.value = false;
+  }
+};
+
+const getQuestionForIndex = (index: number): string => {
+  if (!eventQuestions.value || !eventQuestions.value[index]) {
+    return `Question ${index + 1}`;
+  }
+  return eventQuestions.value[index];
+};
+
+const formatTime = (seconds: number): string => {
+  if (!seconds && seconds !== 0) return "N/A";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+};
+
+// New functions for reviews and scoring
+const searchApplicant = async () => {
+  if (!searchApplicantID.value.trim()) return;
+
+  console.log("Searching for applicant:", searchApplicantID.value);
+  applicantReviews.value = [];
+  searchedApplication.value = null;
+
+  try {
+    let searchId = searchApplicantID.value.trim();
+
+    // Try to find the application by applicantID in the loaded list
+    const app = allApplications.value.find((a) => a.applicantID === searchId);
+
+    console.log("Found app in allApplications:", app);
+
+    // If found in preloaded list, use that application ID
+    // Otherwise, assume the user entered an application ID directly
+    const appIdToUse = app ? app._id : searchId;
+
+    console.log("Using app ID:", appIdToUse);
+
+    // Fetch the application details
+    try {
+      const appData = await api.applicationStorage.getApplication(appIdToUse);
+      console.log("App data from API:", appData);
+
+      // Handle both array and object responses
+      let app;
+      if (Array.isArray(appData)) {
+        if (appData.length === 0) {
+          alert(
+            "❌ This is not a valid application ID. Please check the ID and try again."
+          );
+          return;
+        }
+        app = appData[0];
+      } else {
+        app = appData;
+      }
+
+      if (!app) {
+        alert(
+          "❌ This is not a valid application ID. Please check the ID and try again."
+        );
+        return;
+      }
+
+      searchedApplication.value = app;
+      console.log("Set searchedApplication to:", searchedApplication.value);
+    } catch (err) {
+      console.error("Error fetching application:", err);
+      alert(
+        "❌ This is not a valid application ID. Please check the ID and try again."
+      );
+      return;
+    }
+
+    // Get reviews for this application with author names/emails
+    const reviews = await api.reviewRecords.getReviewsWithScoresByApplication(
+      appIdToUse
+    );
+    console.log("Reviews from API:", reviews);
+
+    // Get all users to look up author names/emails
+    let allUsers: Array<{ _id: string; name: string; email: string }> = [];
+    try {
+      if (authStore.user?.id) {
+        allUsers = await api.auth.getAllUsers(authStore.user.id);
+        console.log("All users for lookup:", allUsers);
+      }
+    } catch (err) {
+      console.warn("Could not get all users for lookup:", err);
+    }
+
+    // Fetch author details for each review
+    const reviewsWithDetails = reviews.map((review) => {
+      const authorInfo = allUsers.find((u) => u._id === review.author);
+      return {
+        ...review,
+        authorName: authorInfo?.name || review.author,
+        authorEmail: authorInfo?.email || "unknown",
+        activeTime: (review as any).activeTime || 0, // Include active time if available
+      };
+    });
+
+    applicantReviews.value = reviewsWithDetails;
+    console.log("Final applicantReviews:", applicantReviews.value);
+  } catch (err) {
+    console.error("Failed to search applicant:", err);
+    alert("Failed to search for applicant. Please try again.");
+    applicantReviews.value = [];
+    searchedApplication.value = null;
+  }
+};
+
+const calculateWeightedAverages = async () => {
+  if (!currentEventId.value) return;
+
+  // Normalize weights to prevent issues with missing criteria
+  const totalWeight = Object.values(weights.value).reduce(
+    (sum, w) => sum + (w || 0),
+    0
+  );
+  const normalizedWeights: Record<string, number> = {};
+
+  // Only include weights with non-zero values
+  Object.keys(weights.value).forEach((criterion) => {
+    if (weights.value[criterion] && weights.value[criterion] > 0) {
+      normalizedWeights[criterion] =
+        totalWeight > 0
+          ? weights.value[criterion] / totalWeight
+          : weights.value[criterion];
+    }
+  });
+
+  if (Object.keys(normalizedWeights).length === 0) {
+    alert("Please set at least one criterion weight.");
+    return;
+  }
+
+  try {
+    const averages = await api.reviewRecords.calculateWeightedAverages(
+      normalizedWeights
+    );
+
+    // Map application IDs to applicant IDs
+    const averagesWithApplicantID = await Promise.all(
+      averages.map(async (avg) => {
+        try {
+          const appData = await api.applicationStorage.getApplication(
+            avg.application
+          );
+          if (appData) {
+            const app = Array.isArray(appData) ? appData[0] : appData;
+            return {
+              applicantID: app.applicantID,
+              weightedAverage: avg.weightedAverage,
+              numReviews: avg.numReviews,
+            };
+          }
+          return null;
+        } catch (err) {
+          console.error("Failed to get application data:", err);
+          return null;
+        }
+      })
+    );
+
+    weightedAverages.value = averagesWithApplicantID.filter(
+      (a) => a !== null
+    ) as Array<{
+      applicantID: string;
+      weightedAverage: number;
+      numReviews: number;
+    }>;
+
+    weightedAverages.value.sort(
+      (a, b) => b.weightedAverage - a.weightedAverage
+    );
+  } catch (err) {
+    console.error("Failed to calculate weighted averages:", err);
+    alert("Failed to calculate averages. Please check your weights.");
+  }
+};
+
+const exportToCSV = () => {
+  if (weightedAverages.value.length === 0) return;
+
+  const headers = ["Applicant ID", "Weighted Average", "Number of Reviews"];
+  const rows = weightedAverages.value.map((avg) => [
+    avg.applicantID,
+    avg.weightedAverage.toFixed(2),
+    avg.numReviews.toString(),
+  ]);
+
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) => row.join(",")),
+  ].join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv" });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${eventName.value}_weighted_averages.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
+const loadEventData = async () => {
+  try {
+    const eventId = route.params.id as string;
+    currentEventId.value = eventId;
+
+    const eventData = await api.eventDirectory.getEventById(eventId);
+    const event = Array.isArray(eventData) ? eventData[0] : eventData;
+    if (event) {
+      eventName.value = event.name;
+      currentEventRubric.value = event.rubric || [];
+      eventQuestions.value = event.questions || [];
+
+      // Load rubric into display rubric
+      rubric.value = (event.rubric || []).map(
+        (criterion: any, idx: number) => ({
+          id: idx.toString(),
+          name: criterion.name || "",
+          description: criterion.description || "",
+          scaleMin: criterion.scaleMin || 1,
+          scaleMax: criterion.scaleMax || 5,
+          guidelines: criterion.guidelines || [],
+        })
+      );
+
+      // Load eligibility criteria
+      eligibilityCriteria.value = event.eligibilityCriteria || [];
+
+      // Initialize weights with 0 for each criterion
+      weights.value = {};
+      currentEventRubric.value.forEach((criterion) => {
+        weights.value[criterion.name] = 0;
+      });
+
+      // Load all applications for this event (may not be available)
+      try {
+        const apps = await api.applicationStorage.getApplicationsByEvent(
+          eventId
+        );
+        allApplications.value = apps;
+      } catch (err) {
+        console.warn("Could not load all applications:", err);
+        allApplications.value = [];
+      }
+
+      // Load readers
+      await loadReaders();
+    }
+  } catch (err) {
+    console.error("Failed to load event data:", err);
+  }
+};
+
+onMounted(async () => {
   if (!authStore.isAuthenticated) {
     router.push("/auth");
   } else if (!authStore.isAdmin) {
     router.push("/");
+  } else {
+    await loadEventData();
   }
 });
 </script>
@@ -409,9 +1129,21 @@ onMounted(() => {
   border: 1px solid var(--border-light);
 }
 
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .user-name {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.user-email {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 400;
 }
 
 .empty-state {
@@ -419,6 +1151,20 @@ onMounted(() => {
   font-style: italic;
   text-align: center;
   padding: 1rem;
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
 }
 
 .rubric-container {
@@ -483,6 +1229,15 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
+.criterion-name-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
 .scale-input {
   width: 80px;
   padding: 0.5rem;
@@ -498,6 +1253,14 @@ onMounted(() => {
   border-radius: var(--radius-sm);
   resize: vertical;
   min-height: 80px;
+}
+
+.user-count {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  text-align: center;
+  padding: 0.5rem;
 }
 
 .guidelines-table {
@@ -548,7 +1311,7 @@ onMounted(() => {
 }
 
 .btn-approve:hover {
-  background: #059669;
+  background: #7aa94c;
 }
 
 .btn-remove {
@@ -557,7 +1320,13 @@ onMounted(() => {
 }
 
 .btn-remove:hover {
-  background: #dc2626;
+  background: #ff5432;
+}
+
+.criterion-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 .btn-save {
@@ -566,7 +1335,16 @@ onMounted(() => {
 }
 
 .btn-save:hover {
-  background: #2563eb;
+  background: var(--accent-secondary);
+}
+
+.btn-delete {
+  background: var(--accent-danger);
+  color: white;
+}
+
+.btn-delete:hover {
+  background: #ff5432;
 }
 
 .btn-add {
@@ -603,6 +1381,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.eligibility-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 .criteria-list {
@@ -653,7 +1437,413 @@ onMounted(() => {
 }
 
 .btn-remove-small:hover {
-  background: #dc2626;
+  background: #ff5432;
+}
+
+/* Reviews & Scoring Section */
+.reviews-section {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  padding: 2rem;
+  border: 1px solid var(--border-light);
+  margin-top: 2rem;
+}
+
+.reviews-section h2 {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 1rem;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 2rem;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 2rem;
+  position: relative;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+}
+
+.modal-content h4 {
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.detail-section p {
+  margin: 0.5rem 0;
+}
+
+.qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.qa-item {
+  background: var(--bg-secondary);
+  padding: 1rem;
+  border-radius: 4px;
+  border-left: 3px solid var(--primary-color);
+}
+
+.question-text {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.answer-text {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.review-item-detailed {
+  background: white;
+  border: 1px solid #ddd;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #eee;
+}
+
+.reviewer-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.review-author {
+  display: block;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.review-email {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.review-date {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.review-scores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.score-item-detailed {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  border-left: 3px solid var(--primary-color);
+}
+
+.score-item-detailed .criterion-name {
+  font-weight: 500;
+}
+
+.review-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-end;
+}
+
+.review-time {
+  color: #666;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.criterion-name {
+  font-weight: 500;
+}
+
+.score-value {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.search-applicant-section,
+.weighted-averages-section {
+  margin-bottom: 2rem;
+}
+
+.search-applicant-section h3,
+.weighted-averages-section h3 {
+  color: var(--text-primary);
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.search-box {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.search-input {
+  flex: 1;
+  padding: 0.75rem;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.btn-search {
+  background: var(--accent-primary);
+  color: white;
+  padding: 0.75rem 2rem;
+}
+
+.btn-search:hover {
+  background: var(--accent-secondary);
+}
+
+.applicant-reviews h4 {
+  color: var(--text-primary);
+  font-size: 1rem;
+  margin-bottom: 1rem;
+}
+
+.reviews-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.review-item {
+  background: var(--bg-secondary);
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.review-author {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.review-date {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.review-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.score-item {
+  display: flex;
+  gap: 0.5rem;
+  background: var(--bg-primary);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+}
+
+.criterion-name {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.score-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.weights-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  background: var(--bg-secondary);
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.weight-input-group {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.weight-input-group label {
+  color: var(--text-primary);
+  font-weight: 500;
+  min-width: 150px;
+}
+
+.weight-input {
+  flex: 1;
+  max-width: 150px;
+  padding: 0.5rem;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.weight-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.export-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: white;
+  padding: 0.75rem 2rem;
+}
+
+.btn-primary:hover {
+  background: var(--accent-secondary);
+}
+
+.btn-export {
+  background: var(--accent-success);
+  color: white;
+  padding: 0.75rem 2rem;
+}
+
+.btn-export:hover:not(:disabled) {
+  background: #7aa94c;
+}
+
+.btn-export:disabled {
+  background: var(--border-medium);
+  cursor: not-allowed;
+}
+
+.results-container {
+  background: var(--bg-secondary);
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.results-container h4 {
+  color: var(--text-primary);
+  font-size: 1rem;
+  margin-bottom: 1rem;
+}
+
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+}
+
+.result-app {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.result-score {
+  color: var(--accent-primary);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.result-reviews {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
 }
 
 @media (max-width: 768px) {
@@ -671,6 +1861,28 @@ onMounted(() => {
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;
+  }
+
+  .search-box {
+    flex-direction: column;
+  }
+
+  .export-buttons {
+    flex-direction: column;
+  }
+
+  .weight-input-group {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .weight-input-group label {
+    min-width: auto;
+  }
+
+  .weight-input {
+    width: 100%;
+    max-width: 100%;
   }
 }
 </style>
