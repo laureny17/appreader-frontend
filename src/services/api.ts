@@ -60,22 +60,24 @@ async function apiRequest<T = any>(
     const data = await response.json();
     console.log("API Response data:", data);
 
-    // Handle null response - some endpoints legitimately return null
-    if (data === null || data === undefined) {
-      // Return null for certain endpoints that can legitimately return null
-      const nullAllowedEndpoints = [
-        "/AuthAccounts/_getAccountByUserId",
-        "/AuthAccounts/_getNameByUserId",
-        "/ApplicationAssignments/getCurrentAssignment",
+    // Handle null or undefined response (but allow null for certain endpoints)
+    if (data === undefined) {
+      throw new ApiError("Server returned undefined response");
+    }
+
+    // Allow null responses for certain endpoints that legitimately return null
+    if (data === null) {
+      const allowNullEndpoints = [
+        "/ReviewRecords/_getUserScoresForApplication",
+        "/ReviewRecords/_getReaderStatsForEvent",
+        "/ApplicationAssignments/_getSkipStatsForEvent",
       ];
-      if (
-        nullAllowedEndpoints.some((allowedEndpoint) =>
-          url.includes(allowedEndpoint)
-        )
-      ) {
+
+      if (allowNullEndpoints.some((endpoint) => url.includes(endpoint))) {
         return null as T;
+      } else {
+        throw new ApiError("Server returned null response");
       }
-      throw new ApiError("Server returned null response");
     }
 
     if (data.error) {
@@ -111,12 +113,9 @@ export const api = {
       }),
 
     getAccountByUserId: (userId: string) =>
-      apiRequest<{
-        _id: string;
-        email: string;
-        name: string;
-        passwordHash: string;
-      } | null>("/AuthAccounts/_getAccountByUserId", {
+      apiRequest<
+        [{ _id: string; email: string; name: string; passwordHash: string }]
+      >("/AuthAccounts/_getAccountByUserId", {
         method: "POST",
         body: JSON.stringify({ userId }),
       }),
@@ -130,7 +129,7 @@ export const api = {
       }),
 
     getNameByUserId: (userId: string) =>
-      apiRequest<string>("/AuthAccounts/_getNameByUserId", {
+      apiRequest<{ name: string }>("/AuthAccounts/_getNameByUserId", {
         method: "POST",
         body: JSON.stringify({ userId }),
       }),
@@ -202,6 +201,17 @@ export const api = {
       >("/ApplicationAssignments/_getAssignmentsByApplication", {
         method: "POST",
         body: JSON.stringify({ application }),
+      }),
+
+    getSkipStatsForEvent: (event: string) =>
+      apiRequest<
+        Array<{
+          userId: string;
+          skipCount: number;
+        }>
+      >("/ApplicationAssignments/_getSkipStatsForEvent", {
+        method: "POST",
+        body: JSON.stringify({ event }),
       }),
   },
 
@@ -331,6 +341,8 @@ export const api = {
         Array<{
           application: string;
           submittedAt: string;
+          isFlagged?: boolean;
+          flagReason?: string;
           applicationDetails?: {
             _id: string;
             applicantID: string;
@@ -340,6 +352,74 @@ export const api = {
       >("/ReviewRecords/_getUserReviewedApplications", {
         method: "POST",
         body: JSON.stringify({ user, event }),
+      }),
+
+    getReaderStatsForEvent: (event: string) =>
+      apiRequest<
+        Array<{
+          userId: string;
+          readCount: number;
+          totalTime: number;
+        }>
+      >("/ReviewRecords/_getReaderStatsForEvent", {
+        method: "POST",
+        body: JSON.stringify({ event }),
+      }),
+
+    getUserScoresForApplication: (user: string, application: string) =>
+      apiRequest<{
+        review: string;
+        scores: Array<{ criterion: string; value: number }>;
+      } | null>("/ReviewRecords/_getUserScoresForApplication", {
+        method: "POST",
+        body: JSON.stringify({ user, application }),
+      }),
+
+    getReviewsWithScoresByApplication: (application: string) =>
+      apiRequest<
+        Array<{
+          review: string;
+          author: string;
+          scores: Array<{ criterion: string; value: number }>;
+        }>
+      >("/ReviewRecords/_getReviewsWithScoresByApplication", {
+        method: "POST",
+        body: JSON.stringify({ application }),
+      }),
+
+    editReview: (editor: string, review: string) =>
+      apiRequest<{ success: true }>("/ReviewRecords/editReview", {
+        method: "POST",
+        body: JSON.stringify({ editor, review }),
+      }),
+
+    setScore: (
+      author: string,
+      review: string,
+      criterion: string,
+      value: number
+    ) =>
+      apiRequest<{ application: string }>("/ReviewRecords/setScore", {
+        method: "POST",
+        body: JSON.stringify({ author, review, criterion, value }),
+      }),
+
+    addRedFlag: (author: string, review: string) =>
+      apiRequest<{ flag: string }>("/ReviewRecords/addRedFlag", {
+        method: "POST",
+        body: JSON.stringify({ author, review }),
+      }),
+
+    removeRedFlag: (author: string, review: string) =>
+      apiRequest<{ success: true }>("/ReviewRecords/removeRedFlag", {
+        method: "POST",
+        body: JSON.stringify({ author, review }),
+      }),
+
+    hasUserFlaggedApplication: (user: string, application: string) =>
+      apiRequest<boolean>("/ReviewRecords/_hasUserFlaggedApplication", {
+        method: "POST",
+        body: JSON.stringify({ user, application }),
       }),
   },
 
@@ -717,7 +797,7 @@ export const api = {
             user,
             assignment,
             endTime,
-            activeTimeSeconds: activeTimeSeconds || 0,
+            activeTime: activeTimeSeconds || 0,
           }),
         }
       ),
@@ -729,6 +809,92 @@ export const api = {
       }>("/ReviewRecords/_getUserReviewProgress", {
         method: "POST",
         body: JSON.stringify({ user, event }),
+      }),
+
+    // Flagged Applications endpoints
+    getFlaggedApplications: (event: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          applicantID: string;
+          applicantYear: string;
+          answers: string[];
+          flaggedBy: string;
+          flaggedAt: string;
+          flagReason: string;
+          disqualified: boolean;
+          disqualificationReason?: string;
+          disqualifiedAt?: string;
+          disqualifiedBy?: string;
+        }>
+      >("/ApplicationStorage/_getFlaggedApplications", {
+        method: "POST",
+        body: JSON.stringify({ event }),
+      }),
+
+    disqualifyApplication: (
+      applicationId: string,
+      reason: string,
+      disqualifiedBy: string
+    ) =>
+      apiRequest<{ success: boolean }>(
+        "/ApplicationStorage/_disqualifyApplication",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            application: applicationId,
+            reason,
+            disqualifiedBy,
+            disqualifiedAt: new Date().toISOString(),
+          }),
+        }
+      ),
+
+    removeFlag: (applicationId: string, removedBy: string) =>
+      apiRequest<{ success: boolean }>("/ApplicationStorage/_removeFlag", {
+        method: "POST",
+        body: JSON.stringify({
+          application: applicationId,
+          removedBy,
+          removedAt: new Date().toISOString(),
+        }),
+      }),
+
+    getDisqualifiedApplications: (event: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          applicantID: string;
+          disqualificationReason: string;
+          disqualifiedAt: string;
+          disqualifiedBy: string;
+        }>
+      >("/ApplicationStorage/_getDisqualifiedApplications", {
+        method: "POST",
+        body: JSON.stringify({ event }),
+      }),
+
+    // Bulk Import endpoints
+    bulkImportApplications: (
+      event: string,
+      applications: Array<{
+        applicantID: string;
+        applicantYear: string;
+        answers: string[];
+      }>,
+      importedBy: string
+    ) =>
+      apiRequest<{
+        success: boolean;
+        importedCount: number;
+        errors: Array<{ applicantID: string; error: string }>;
+      }>("/ApplicationStorage/_bulkImportApplications", {
+        method: "POST",
+        body: JSON.stringify({
+          event,
+          applications,
+          importedBy,
+        }),
       }),
   },
 };

@@ -360,7 +360,8 @@
 "startTime": "Date",
 "event": "ID"
 },
-"endTime": "Date"
+"endTime": "Date",
+"activeTime": "number (optional)"
 }
 
 **Success Response Body (Action):**
@@ -1069,6 +1070,84 @@
 
 ---
 
+### POST /api/ApplicationAssignments/flagAndSkip
+
+**Description:** Flags an application and skips to the next one (without requiring a review).
+
+**Requirements:**
+
+- Assignment exists and belongs to the user.
+
+**Effects:**
+
+- Creates a flag record linked to the application.
+- Adds the user to the readers set for the related AppStatus.
+- Deletes the current assignment.
+
+**Request Body:**
+{
+"user": "ID",
+"assignment": {
+"\_id": "ID",
+"user": "ID",
+"application": "ID",
+"startTime": "Date",
+"event": "ID"
+},
+"reason": "string (optional)"
+}
+
+**Success Response Body:**
+{
+"success": true
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationAssignments/\_getUserFlaggedApplications
+
+**Description:** Retrieves all applications a user has flagged (without reviewing).
+
+**Requirements:**
+
+- User and event IDs are valid.
+
+**Effects:**
+
+- Returns all applications the user has flagged for this event with timestamps and application details.
+
+**Request Body:**
+{
+"user": "ID",
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"application": "ID",
+"timestamp": "string (ISO timestamp)",
+"reason": "string (optional)",
+"applicationDetails": {
+"_id": "string",
+"applicantID": "string",
+"applicantYear": "string"
+}
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
 ### POST /api/EventDirectory/\_getPendingReadersForEvent
 
 **Description:** Retrieves all users who have requested to be readers for an event but are not yet verified.
@@ -1670,6 +1749,172 @@
 
 ---
 
+### POST /api/ReviewRecords/\_getReaderStatsForEvent
+
+**Description:** Get comprehensive reader statistics for all readers in an event.
+
+**Requirements:**
+
+- Event ID is valid.
+
+**Effects:**
+
+- Returns array of reader statistics with read counts and total times.
+- Includes all users who have at least one review.
+
+**Request Body:**
+{
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"userId": "string",
+"readCount": "number",
+"totalTime": "number"
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationAssignments/\_getSkipStatsForEvent
+
+**Description:** Get skip statistics for all users who interacted with assignments in an event.
+
+**Requirements:**
+
+- Event ID is valid.
+
+**Effects:**
+
+- Returns skip counts per user.
+
+**Request Body:**
+{
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"userId": "string",
+"skipCount": "number"
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/deleteReview
+
+**Description:** Deletes a review by its ID. Only the author of the review can delete it.
+
+**Requirements:**
+
+- User must be authenticated.
+- User must be the author of the review being deleted.
+- Review ID must exist.
+
+**Effects:**
+
+- Removes the review from the database.
+- Deletes all related scores and red flags.
+- Returns success confirmation.
+
+**Request Body:**
+{
+"reviewId": "ID",
+"user": "ID"
+}
+
+**Success Response Body:**
+{
+"success": true,
+"message": "string"
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/\_hasUserFlaggedApplication
+
+**Description:** Checks if a user has flagged a specific application.
+
+**Requirements:**
+
+- User and application IDs are valid.
+
+**Effects:**
+
+- Returns true if the user has flagged this application, false otherwise.
+
+**Request Body:**
+{
+"user": "ID",
+"application": "ID"
+}
+
+**Success Response Body (Query):**
+true | false
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/\_getUserScoresForApplication
+
+**Description:** Retrieves all scores a user submitted for a specific application in their review.
+
+**Requirements:**
+
+- User and application IDs are valid.
+
+**Effects:**
+
+- Returns the review ID and all scores the user submitted for this application.
+- Returns null if the user hasn't reviewed this application yet.
+
+**Request Body:**
+{
+"user": "ID",
+"application": "ID"
+}
+
+**Success Response Body (Query):**
+{
+"review": "ID",
+"scores": [
+{
+"criterion": "string",
+"value": "number"
+}
+]
+} | null
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
 ### POST /api/ReviewRecords/\_getUserReviewedApplications
 
 **Description:** Retrieves all applications a user has reviewed for a specific event.
@@ -1697,7 +1942,9 @@
 "_id": "string",
 "applicantID": "string",
 "applicantYear": "string"
-}
+},
+"isFlagged": "boolean (optional)",
+"flagReason": "string (optional)"
 }
 ]
 
