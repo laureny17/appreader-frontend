@@ -20,8 +20,18 @@ export const useEventsStore = defineStore("events", () => {
     error.value = null;
   };
 
-  const setCurrentEvent = (event: Event) => {
-    currentEvent.value = event;
+  const normalizeEventId = (ev: any): string | null => {
+    if (!ev) return null;
+    return ev._id || ev.eventId || ev.id || null;
+  };
+
+  const setCurrentEvent = (event: Event | any) => {
+    // Accept either the lightweight Event (with eventId) or full backend doc (with _id)
+    const id = normalizeEventId(event);
+    if (id) {
+      localStorage.setItem("currentEventId", id);
+    }
+    currentEvent.value = event as any; // keep the object you pass in
   };
 
   const loadVerifiedEventsForUser = async (userId: string) => {
@@ -138,8 +148,27 @@ export const useEventsStore = defineStore("events", () => {
     }
   };
 
-  const selectEvent = (event: Event | null) => {
-    currentEvent.value = event;
+  const selectEvent = async (event: Event | any) => {
+    try {
+      const id = normalizeEventId(event);
+      if (!id) {
+        console.error("selectEvent: could not determine event id from:", event);
+        return;
+      }
+
+      // Always fetch the canonical backend event so we have `_id`, rubric, etc.
+      const full = await api.eventDirectory.getEventById(id);
+      if (!full) {
+        console.error("selectEvent: getEventById returned null for", id);
+        return;
+      }
+
+      // Store canonical backend event and persist its `_id`
+      currentEvent.value = full as any; // has `_id`
+      localStorage.setItem("currentEventId", full._id);
+    } catch (e) {
+      console.error("selectEvent failed:", e);
+    }
   };
 
   const updateEventConfig = async (
@@ -167,6 +196,25 @@ export const useEventsStore = defineStore("events", () => {
     }
   };
 
+  async function loadCurrentEvent() {
+    const savedEventId = localStorage.getItem("currentEventId");
+    if (savedEventId) {
+      try {
+        const event = await api.eventDirectory.getEventById(savedEventId);
+        console.log("Loaded current event:", event);
+        currentEvent.value = event as any; // ✅ assign to ref, not `this.currentEvent`
+        if (event?._id) {
+          localStorage.setItem("currentEventId", event._id); // keep canonical id
+        }
+      } catch (err) {
+        console.error("Failed to load current event:", err);
+        currentEvent.value = null;
+      }
+    } else {
+      console.warn("No savedEventId found in localStorage");
+    }
+  }
+
   return {
     // State
     verifiedEvents: readonly(verifiedEvents),
@@ -184,5 +232,6 @@ export const useEventsStore = defineStore("events", () => {
     createEvent,
     selectEvent,
     updateEventConfig,
+    loadCurrentEvent,
   };
 });

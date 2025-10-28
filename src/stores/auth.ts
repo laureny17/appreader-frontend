@@ -19,6 +19,7 @@ export interface Event {
     description: string;
     scaleMin: number;
     scaleMax: number;
+    guidelines?: string[];
   }>;
   eligibilityCriteria: string[];
   questions: string[];
@@ -108,13 +109,13 @@ export const useAuthStore = defineStore("auth", () => {
         const accountDetails = await api.auth.getAccountByUserId(response.user);
         console.log("Account details:", accountDetails);
 
-        // Handle array response (as per new API spec)
+        // Handle object or null response
         if (
           accountDetails &&
-          Array.isArray(accountDetails) &&
-          accountDetails.length > 0
+          typeof accountDetails === "object" &&
+          "name" in accountDetails
         ) {
-          userName = accountDetails[0]?.name || email;
+          userName = accountDetails.name || email;
         }
       } catch (nameError) {
         console.warn("Could not fetch user name, using email:", nameError);
