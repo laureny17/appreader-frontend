@@ -1,9 +1,6 @@
 <template>
   <div class="event-selection">
     <div class="selection-container">
-      <div class="logo">LOGO</div>
-      <h1>APPREADER</h1>
-
       <div class="welcome-section">
         <h2>Welcome back, {{ name }}!</h2>
         <p>Select an event to continue:</p>
