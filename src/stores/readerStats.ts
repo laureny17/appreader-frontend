@@ -23,6 +23,10 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
     error.value = null;
   };
 
+  const setReaders = (stats: ReaderStat[]) => {
+    readers.value = stats;
+  };
+
   const loadReaderStats = async (eventId: string) => {
     isLoading.value = true;
     error.value = null;
@@ -60,5 +64,6 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
     setError,
     clearError,
     loadReaderStats,
+    setReaders,
   };
 });

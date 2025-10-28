@@ -21,10 +21,7 @@
       </button>
     </div>
 
-    <div
-      v-else-if="!applicationsStore.currentApplication"
-      class="no-application"
-    >
+    <div v-else-if="!currentApp" class="no-application">
       <p v-if="applicationsStore.applications.length === 0">
         No applications available to read.
       </p>
@@ -36,6 +33,9 @@
     </div>
 
     <div v-else class="read-content">
+      <div v-if="isCurrentAppFlagged" class="flagged-notice">
+        🚩 This application has been flagged
+      </div>
       <div class="scoring-panel">
         <h3>Scoring</h3>
         <div
@@ -53,16 +53,25 @@
               [?]
             </button>
           </div>
-          <div class="slider-container">
-            <input
-              type="range"
-              :min="criterion.scaleMin"
-              :max="criterion.scaleMax"
-              v-model="scores[criterion.name]"
-              class="slider"
-            />
-            <div class="slider-labels">
-              <span v-for="i in criterion.scaleMax" :key="i">{{ i }}</span>
+          <div class="score-buttons-container">
+            <div class="score-buttons">
+              <button
+                v-for="i in criterion.scaleMax"
+                :key="i"
+                @click="
+                  scores[criterion.name] = i;
+                  hasTouchedSliders = true;
+                "
+                :disabled="isCurrentAppFlagged"
+                :class="[
+                  'score-btn',
+                  scores[criterion.name] === i
+                    ? 'score-btn-selected'
+                    : 'score-btn-unselected',
+                ]"
+              >
+                {{ i }}
+              </button>
             </div>
           </div>
         </div>
@@ -70,20 +79,17 @@
 
       <div class="application-content">
         <div class="application-header">
-          <h2>
-            APPLICANT: {{ applicationsStore.currentApplication?.applicantID }}
-          </h2>
+          <h2>APPLICANT: {{ currentApp?.applicantID }}</h2>
           <p class="applicant-year">
             Applicant Year:
-            {{ applicationsStore.currentApplication?.applicantYear }}
+            {{ currentApp?.applicantYear }}
           </p>
         </div>
 
         <div class="questions">
           <div
             class="question"
-            v-for="(answer, index) in applicationsStore.currentApplication
-              ?.answers"
+            v-for="(answer, index) in currentApp?.answers"
             :key="index"
           >
             <h3>Q{{ index + 1 }}) {{ getQuestionForIndex(index) }}</h3>
@@ -162,17 +168,37 @@
 
     <div class="read-actions">
       <div class="previous-reads">
-        <select @change="loadPreviousRead" class="previous-select">
+        <select
+          @change="loadPreviousRead"
+          class="previous-select"
+          ref="previousReadsSelect"
+          :disabled="
+            isViewingPreviousRead && !isCurrentAppFlagged && !allScoresSelected
+          "
+        >
           <option value="">Previous reads...</option>
+          <option v-if="currentApp" :value="currentApp._id">
+            {{
+              isViewingPreviousRead
+                ? "Back to current"
+                : "Current: " + formatTime(new Date())
+            }}
+          </option>
           <option v-for="read in previousReads" :key="read.id" :value="read.id">
-            {{ formatTime(read.timestamp) }}
+            {{ formatTime(read.timestamp) }}{{ read.isFlagged ? " 🚩" : "" }}
           </option>
         </select>
       </div>
       <button @click="skipApplication" class="btn btn-skip">SKIP</button>
-      <button @click="flagApplication" class="btn btn-danger">FLAG</button>
-      <button @click="submitReview" class="btn btn-primary btn-large">
-        SUBMIT
+      <button @click="flagApplication" class="btn btn-danger">
+        {{ isCurrentAppFlagged ? "UNFLAG" : "FLAG" }}
+      </button>
+      <button
+        @click="submitReview"
+        class="btn btn-primary btn-large"
+        :disabled="!allScoresSelected"
+      >
+        {{ isViewingPreviousRead && hasExistingReview ? "RESUBMIT" : "SUBMIT" }}
       </button>
     </div>
 
@@ -218,7 +244,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useEventsStore } from "@/stores/events";
@@ -239,6 +265,38 @@ const userComments = ref([]);
 const newComment = ref("");
 const showRubric = ref<string | null>(null);
 const previousReads = ref([]);
+const isViewingPreviousRead = ref(false);
+const savedAssignment = ref<any>(null);
+const tempApplication = ref<any>(null);
+const tempAIComments = ref<any[]>([]);
+const existingReviewId = ref<string | null>(null);
+const hasExistingReview = ref(false);
+const isCurrentAppFlagged = ref(false);
+const hasTouchedSliders = ref(false);
+const previousReadsSelect = ref<HTMLSelectElement | null>(null);
+
+// Computed property to check if all scores are selected
+const allScoresSelected = computed(() => {
+  return rubricDimensions.value.every(
+    (criterion) =>
+      scores.value[criterion.name] !== undefined &&
+      scores.value[criterion.name] !== null
+  );
+});
+
+// Computed property to get current application
+const currentApp = computed(() => {
+  return isViewingPreviousRead.value && tempApplication.value
+    ? tempApplication.value
+    : applicationsStore.currentApplication;
+});
+
+// Computed property to get current AI comments
+const currentAIComments = computed(() => {
+  return isViewingPreviousRead.value
+    ? tempAIComments.value
+    : applicationsStore.currentApplicationComments || [];
+});
 
 // AI Comment highlighting and tooltips
 const hoveredAIComment = ref(null);
@@ -300,10 +358,11 @@ const loadApplicationData = async () => {
     // Load rubric from current event
     rubricDimensions.value = eventsStore.currentEvent.rubric || [];
 
-    // Initialize scores - use name as key for consistency
+    // Initialize scores - leave undefined until user selects
     scores.value = {};
+    hasTouchedSliders.value = false;
     rubricDimensions.value.forEach((criterion) => {
-      scores.value[criterion.name] = criterion.scaleMin;
+      scores.value[criterion.name] = undefined;
     });
 
     // Reset and start active time tracking
@@ -332,10 +391,7 @@ const loadApplicationData = async () => {
                   answer,
                   index
                 );
-                console.log(
-                  `Setting innerHTML for answer ${index}:`,
-                  highlightedHTML
-                );
+                console.log(highlightedHTML);
                 answerDivs[index].innerHTML = highlightedHTML;
               }
             }
@@ -369,6 +425,17 @@ const loadApplicationData = async () => {
   } catch (err) {
     console.error("Error loading application data:", err);
   }
+  setTimeout(() => {
+    const answerDivs = document.querySelectorAll(".answer");
+    if (currentApp.value?.answers) {
+      currentApp.value.answers.forEach((answer, index) => {
+        if (answerDivs[index]) {
+          const highlightedHTML = formatAnswerWithHighlights(answer, index);
+          answerDivs[index].innerHTML = highlightedHTML;
+        }
+      });
+    }
+  }, 100);
 };
 
 const formatAnswer = (answer: string) => {
@@ -377,14 +444,12 @@ const formatAnswer = (answer: string) => {
 };
 
 const formatAnswerWithHighlights = (answer: string, answerIndex: number) => {
-  // Only highlight snippets from currentApplicationComments
+  // Only highlight snippets from currentAIComments
   let highlightedAnswer = answer;
 
-  if (
-    applicationsStore.currentApplicationComments &&
-    applicationsStore.currentApplicationComments.length > 0
-  ) {
-    applicationsStore.currentApplicationComments.forEach((comment) => {
+  const activeComments = currentAIComments.value;
+  if (activeComments && activeComments.length > 0) {
+    activeComments.forEach((comment) => {
       const snippet = comment.quotedSnippet;
       if (snippet && highlightedAnswer.includes(snippet)) {
         const highlightClass = getCommentCategoryClass(comment.category);
@@ -408,11 +473,6 @@ const formatAnswerWithHighlights = (answer: string, answerIndex: number) => {
 };
 
 const getQuestionForIndex = (index: number) => {
-  console.log("=== GET QUESTION FOR INDEX ===");
-  console.log("Index:", index);
-  console.log("Current event:", eventsStore.currentEvent);
-  console.log("Event questions:", eventsStore.currentEvent?.questions);
-
   if (
     !eventsStore.currentEvent?.questions ||
     !eventsStore.currentEvent.questions.length
@@ -423,7 +483,6 @@ const getQuestionForIndex = (index: number) => {
 
   // The questions array should be in the same order as the answers array
   const question = eventsStore.currentEvent.questions[index];
-  console.log("Question at index", index, ":", question);
   return question || `Question ${index + 1}`;
 };
 
@@ -604,9 +663,19 @@ const submitComment = async () => {
     return;
 
   try {
+    // Use correct app depending on whether we're viewing a previous read
+    const targetAppId = isViewingPreviousRead.value
+      ? tempApplication.value?._id
+      : applicationsStore.currentApplication?._id;
+
+    if (!targetAppId) {
+      alert("No valid application to comment on.");
+      return;
+    }
+
     await api.reviewRecords.addComment(
       authStore.user.id,
-      applicationsStore.currentApplication._id,
+      targetAppId,
       newComment.value,
       selectedText.value
     );
@@ -620,18 +689,17 @@ const submitComment = async () => {
 };
 
 const loadComments = async () => {
-  if (!applicationsStore.currentApplication || !authStore.user) {
+  // Always clear existing comments at the start
+  userComments.value = [];
+  if (!currentApp.value || !authStore.user) {
     console.log("Cannot load comments - no application or user");
     return;
   }
 
   try {
-    console.log(
-      "Fetching comments for application:",
-      applicationsStore.currentApplication._id
-    );
+    console.log("Fetching comments for application:", currentApp.value._id);
     const comments = await api.reviewRecords.getCommentsByApplication(
-      applicationsStore.currentApplication._id
+      currentApp.value._id
     );
 
     console.log("Loaded comments response:", comments);
@@ -712,6 +780,18 @@ const loadComments = async () => {
     console.error("Failed to load comments:", err);
     userComments.value = [];
   }
+
+  setTimeout(() => {
+    const answerDivs = document.querySelectorAll(".answer");
+    if (currentApp.value?.answers) {
+      currentApp.value.answers.forEach((answer, index) => {
+        if (answerDivs[index]) {
+          const highlightedHTML = formatAnswerWithHighlights(answer, index);
+          answerDivs[index].innerHTML = highlightedHTML;
+        }
+      });
+    }
+  }, 100);
 };
 
 const formatTime = (date: Date) => {
@@ -743,6 +823,37 @@ const selectedCriterion = computed(() => {
 });
 
 const skipApplication = async () => {
+  // If viewing a previous read, delete the review and return to current assignment
+  if (isViewingPreviousRead.value) {
+    try {
+      // If there's an existing review, delete it
+      if (existingReviewId.value && authStore.user) {
+        await api.reviewRecords.deleteReview(
+          existingReviewId.value,
+          authStore.user.id
+        );
+        console.log("Deleted review for skipped application");
+      }
+
+      // Return to current assignment
+      isViewingPreviousRead.value = false;
+      tempApplication.value = null;
+      tempAIComments.value = [];
+      userComments.value = [];
+      isCurrentAppFlagged.value = false;
+      hasTouchedSliders.value = false;
+      existingReviewId.value = null;
+      await loadApplicationData();
+      await loadPreviousReads();
+      return;
+    } catch (err) {
+      console.error("Failed to delete review:", err);
+      alert("Failed to skip application. Please try again.");
+      return;
+    }
+  }
+
+  // Otherwise, skip the current assignment
   if (!applicationsStore.currentAssignment || !authStore.user) {
     alert("No assignment to skip.");
     return;
@@ -755,6 +866,7 @@ const skipApplication = async () => {
     );
     // Load next application
     await loadApplicationData();
+    await loadPreviousReads();
   } catch (err) {
     console.error("Failed to skip application:", err);
     alert("Failed to skip application. Please try again.");
@@ -762,53 +874,228 @@ const skipApplication = async () => {
 };
 
 const flagApplication = async () => {
-  alert("Flagging functionality coming soon!");
+  if (!currentApp.value || !authStore.user) {
+    alert("No application to flag or unflag.");
+    return;
+  }
+
+  try {
+    // 🔍 Always refresh flag status first from backend
+    const isFlaggedInBackend =
+      await api.reviewRecords.hasUserFlaggedApplication(
+        authStore.user.id,
+        currentApp.value._id
+      );
+    isCurrentAppFlagged.value = isFlaggedInBackend;
+
+    // 🟥 If flagged already → UNFLAG
+    if (isFlaggedInBackend) {
+      console.log("Unflagging application...");
+      const existingReview =
+        await api.reviewRecords.getUserScoresForApplication(
+          authStore.user.id,
+          currentApp.value._id
+        );
+
+      if (existingReview?.review) {
+        await api.reviewRecords.removeRedFlag(
+          authStore.user.id,
+          existingReview.review
+        );
+        isCurrentAppFlagged.value = false;
+        hasTouchedSliders.value = false;
+        // Don't reset scores - leave them undefined until user selects
+        await loadPreviousReads();
+        alert(
+          "Application unflagged successfully! Please select scores for this applicant and submit (or skip if needed)."
+        );
+      } else {
+        alert("No existing review found to unflag.");
+      }
+      return;
+    }
+
+    // 🟩 If not flagged → FLAG
+    console.log("Flagging application...");
+    const existingReview = await api.reviewRecords.getUserScoresForApplication(
+      authStore.user.id,
+      currentApp.value._id
+    );
+
+    let reviewId;
+    if (existingReview && existingReview.review) {
+      reviewId = existingReview.review;
+    } else {
+      const newReview = await api.applications.submitReview(
+        authStore.user.id,
+        currentApp.value._id,
+        new Date().toISOString()
+      );
+      reviewId = newReview.review;
+    }
+
+    await api.reviewRecords.addRedFlag(authStore.user.id, reviewId);
+    isCurrentAppFlagged.value = true;
+    hasTouchedSliders.value = false;
+    // Clear all scores when flagging
+    rubricDimensions.value.forEach((criterion) => {
+      scores.value[criterion.name] = undefined;
+    });
+    await loadPreviousReads();
+    alert("Application flagged successfully!");
+  } catch (err) {
+    console.error("Failed to flag/unflag:", err);
+    alert(
+      "Failed to update flag: " +
+        (err instanceof Error ? err.message : "Please try again.")
+    );
+  }
 };
 
 const submitReview = async () => {
-  if (
-    !applicationsStore.currentApplication ||
-    !authStore.user ||
-    !applicationsStore.currentAssignment
-  ) {
+  // Check if viewing a previous read
+  const appId =
+    isViewingPreviousRead.value && tempApplication.value
+      ? tempApplication.value._id
+      : applicationsStore.currentApplication?._id;
+
+  if (!appId || !authStore.user) {
+    alert("No application to submit.");
+    return;
+  }
+
+  // If viewing previous read, always try to edit
+  if (isViewingPreviousRead.value && existingReviewId.value) {
+    try {
+      // Use editReview to mark as editable
+      await api.reviewRecords.editReview(
+        authStore.user.id,
+        existingReviewId.value
+      );
+
+      // Update all the scores
+      for (const [criterionName, score] of Object.entries(scores.value)) {
+        await api.reviewRecords.setScore(
+          authStore.user.id,
+          existingReviewId.value,
+          criterionName,
+          Number(score)
+        );
+      }
+
+      alert("Review updated successfully!");
+
+      // Return to current assignment
+      if (savedAssignment.value) {
+        (applicationsStore as any).currentAssignment = savedAssignment.value;
+        isViewingPreviousRead.value = false;
+        savedAssignment.value = null;
+        tempApplication.value = null;
+        tempAIComments.value = [];
+        existingReviewId.value = null;
+        isCurrentAppFlagged.value = false; // reset flag status
+        hasTouchedSliders.value = false; // reset slider touch status
+        await loadApplicationData();
+        await loadPreviousReads();
+      }
+      return;
+    } catch (err) {
+      alert(
+        "Failed to update review: " +
+          (err instanceof Error ? err.message : "Please try again.")
+      );
+      return;
+    }
+  }
+
+  // Regular submission for current assignment
+  if (!applicationsStore.currentAssignment) {
     alert("No assignment to submit.");
     return;
   }
 
   try {
-    // First submit the review
-    const review = await api.applications.submitReview(
+    // Check if review already exists
+    console.log(
+      "Checking for existing review for user:",
       authStore.user.id,
-      applicationsStore.currentApplication._id,
-      new Date().toISOString()
+      "app:",
+      appId
     );
+    const existingReview = await api.reviewRecords.getUserScoresForApplication(
+      authStore.user.id,
+      appId
+    );
+    console.log("Existing review result:", existingReview);
 
-    // Then set all the scores
-    for (const [criterionName, score] of Object.entries(scores.value)) {
-      await api.applications.setScore(
-        authStore.user.id,
-        review.review,
-        criterionName,
-        Number(score)
+    let reviewId;
+    if (existingReview && existingReview.review) {
+      console.log("Using existing review ID:", existingReview.review);
+      reviewId = existingReview.review;
+
+      // Update scores for existing review
+      for (const [criterionName, score] of Object.entries(scores.value)) {
+        await api.reviewRecords.setScore(
+          authStore.user.id,
+          reviewId,
+          criterionName,
+          Number(score)
+        );
+      }
+
+      // Submit and increment (without creating new review)
+      const activeTimeSeconds = Math.round(
+        activeTimeTracker.value.totalActiveSeconds
       );
-    }
+      await api.applications.submitAndIncrement(
+        authStore.user.id,
+        applicationsStore.currentAssignment,
+        new Date().toISOString(),
+        activeTimeSeconds
+      );
+    } else {
+      // No existing review - submitAndIncrement will create the review AND handle scores
+      console.log(
+        "No existing review - submitAndIncrement will create review and handle scores"
+      );
 
-    // Finally, submit and increment
-    const activeTimeSeconds = Math.round(
-      activeTimeTracker.value.totalActiveSeconds
-    );
-    await api.applications.submitAndIncrement(
-      authStore.user.id,
-      applicationsStore.currentAssignment,
-      new Date().toISOString(),
-      activeTimeSeconds
-    );
+      const activeTimeSeconds = Math.round(
+        activeTimeTracker.value.totalActiveSeconds
+      );
+
+      // submitAndIncrement creates the review internally, so we need to set scores after
+      await api.applications.submitAndIncrement(
+        authStore.user.id,
+        applicationsStore.currentAssignment,
+        new Date().toISOString(),
+        activeTimeSeconds
+      );
+
+      // Now set the scores on the newly created review
+      // We need to get the review ID that was created
+      const newReview = await api.reviewRecords.getUserScoresForApplication(
+        authStore.user.id,
+        appId
+      );
+
+      if (newReview && newReview.review) {
+        for (const [criterionName, score] of Object.entries(scores.value)) {
+          await api.reviewRecords.setScore(
+            authStore.user.id,
+            newReview.review,
+            criterionName,
+            Number(score)
+          );
+        }
+      }
+    }
 
     currentReads.value++;
     activeTimeTracker.value.totalActiveSeconds = 0;
 
     // Load next application
     await loadApplicationData();
+    await loadPreviousReads();
 
     alert("Review submitted successfully!");
   } catch (err) {
@@ -820,52 +1107,161 @@ const submitReview = async () => {
   }
 };
 
-const addComment = () => {
-  if (!newComment.value.trim()) return;
-
-  comments.value.push({
-    id: Date.now().toString(),
-    readerId: authStore.user?.id || "1",
-    timestamp: new Date(),
-    text: newComment.value,
-    quotedSnippet: "",
-  });
-
-  newComment.value = "";
-};
+// addComment function removed - using submitComment instead
 
 const loadPreviousRead = async (event: Event) => {
   const target = event.target as HTMLSelectElement;
-  const applicationId = target.value;
-  if (!applicationId) return;
+  const selectedId = target.value;
+  if (!selectedId) return;
+
+  // If selecting the current application while already viewing previous, toggle back to current
+  if (selectedId === currentApp.value?._id && isViewingPreviousRead.value) {
+    console.log("Returning to current assignment view...");
+    isViewingPreviousRead.value = false;
+    tempApplication.value = null;
+    tempAIComments.value = [];
+    userComments.value = []; // clear old comments
+    isCurrentAppFlagged.value = false; // reset flag status for current app
+    hasTouchedSliders.value = false; // reset slider touch status
+    previousReadsSelect.value!.value = ""; // reset dropdown selection
+    await loadApplicationData();
+    await loadPreviousReads();
+    return;
+  }
+
+  // If selecting the current application while not viewing previous, do nothing
+  if (selectedId === currentApp.value?._id && !isViewingPreviousRead.value) {
+    previousReadsSelect.value!.value = "";
+    return;
+  }
 
   try {
-    console.log("Loading previous read:", applicationId);
+    // Save current assignment if we're viewing a new previous read
+    if (!isViewingPreviousRead.value) {
+      savedAssignment.value = applicationsStore.currentAssignment;
+      isViewingPreviousRead.value = true;
+    }
 
-    // Load the application
-    const appData = await api.applications.getApplication(applicationId);
-    if (!appData || appData.length === 0) {
+    // Load the application into temp storage
+    const appData = await api.applications.getApplication(selectedId);
+    console.log("Fetched appData for previous:", appData);
+
+    const app = Array.isArray(appData) ? appData[0] : appData;
+    if (!app || !app._id) {
       alert("Could not load application");
+      previousReadsSelect.value!.value = "";
       return;
     }
 
-    const app = appData[0];
-    applicationsStore.setCurrentApplication(app);
+    tempApplication.value = app; // ensure reactivity kicks in
+    await nextTick(); // let DOM update before rendering
+    console.log("Now displaying previous app:", tempApplication.value);
 
-    // Load AI comments
-    const aiComments = await api.applicationStorage.getAICommentsByApplication(
-      applicationId
+    // Load AI comments into temp storage
+    tempAIComments.value =
+      await api.applicationStorage.getAICommentsByApplication(selectedId);
+
+    // Check if this is a flagged application
+    const matchedRead = previousReads.value.find(
+      (r: any) => r.id === selectedId
     );
-    applicationsStore.setAIComments(aiComments);
+    isCurrentAppFlagged.value = matchedRead?.isFlagged || false;
 
-    // Load user comments
+    // Load existing scores for this application if user already reviewed it
+    try {
+      const existingScores =
+        await api.reviewRecords.getUserScoresForApplication(
+          authStore.user!.id,
+          selectedId
+        );
+
+      if (existingScores) {
+        existingReviewId.value = existingScores.review;
+        hasExistingReview.value = true;
+
+        // Set scores to existing values
+        existingScores.scores.forEach((score: any) => {
+          scores.value[score.criterion] = score.value;
+        });
+      } else {
+        existingReviewId.value = null;
+        hasExistingReview.value = false;
+        // Reset scores to undefined
+        hasTouchedSliders.value = false;
+        rubricDimensions.value.forEach((criterion) => {
+          scores.value[criterion.name] = undefined;
+        });
+      }
+    } catch (err) {
+      console.error("Could not load existing scores:", err);
+      // Reset to undefined on error
+      hasTouchedSliders.value = false;
+      rubricDimensions.value.forEach((criterion) => {
+        scores.value[criterion.name] = undefined;
+      });
+    }
+
+    // Also check if this application has a red flag from this user
+    try {
+      const isFlagged = await api.reviewRecords.hasUserFlaggedApplication(
+        authStore.user!.id,
+        selectedId
+      );
+      isCurrentAppFlagged.value = isFlagged;
+
+      // If flagged, clear all scores
+      if (isFlagged) {
+        hasTouchedSliders.value = false;
+        scores.value = {};
+        rubricDimensions.value.forEach((criterion) => {
+          scores.value[criterion.name] = undefined;
+        });
+      }
+    } catch (err) {
+      console.warn("Could not load flag status:", err);
+    }
+
+    // Load user comments for the selected application (loadComments will use currentApp.value)
     await loadComments();
 
-    // Reset scores - user already reviewed this application
-    scores.value = {};
+    // Refresh the answer display
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const answerDivs = document.querySelectorAll(".answer");
+    if (tempApplication.value?.answers) {
+      tempApplication.value.answers.forEach((answer: any, index: any) => {
+        if (answerDivs[index]) {
+          const highlightedHTML = formatAnswerWithHighlights(answer, index);
+          answerDivs[index].innerHTML = highlightedHTML;
+        }
+      });
+    }
+
+    await loadComments();
+    await nextTick();
+    console.log("Rendered previous application answers and comments");
+    // Do not reset dropdown here (removed: target.value = "";)
   } catch (err) {
-    console.error("Failed to load previous read:", err);
     alert("Failed to load application");
+    previousReadsSelect.value!.value = "";
+  }
+};
+
+const loadPreviousReads = async () => {
+  try {
+    const eventId =
+      (eventsStore.currentEvent as any).eventId ||
+      (eventsStore.currentEvent as any)._id;
+    const previousReviews = await api.reviewRecords.getUserReviewedApplications(
+      authStore.user!.id,
+      eventId
+    );
+    previousReads.value = previousReviews.map((review: any) => ({
+      id: review.application,
+      timestamp: new Date(review.submittedAt),
+      isFlagged: review.isFlagged || false,
+    }));
+  } catch (err) {
+    // Silently fail
   }
 };
 
@@ -875,6 +1271,9 @@ onMounted(async () => {
   } else if (!eventsStore.currentEvent) {
     router.push("/select-event");
   } else {
+    // Load previous reads
+    await loadPreviousReads();
+
     await loadApplicationData();
   }
 
@@ -1232,6 +1631,18 @@ watch(
   margin-bottom: 2rem;
 }
 
+.flagged-notice {
+  grid-column: 1 / -1;
+  background: rgba(255, 103, 66, 0.15);
+  border: 2px solid var(--accent-danger);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  color: var(--accent-danger);
+  font-weight: 600;
+}
+
 .scoring-panel,
 .comments-panel {
   background: var(--bg-primary);
@@ -1274,35 +1685,65 @@ watch(
   border: 1px solid var(--border-medium);
 }
 
-.slider-container {
-  position: relative;
-}
-
-.slider {
-  width: 100%;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--border-light);
-  outline: none;
-  -webkit-appearance: none;
-}
-
-.slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  cursor: pointer;
-}
-
-.slider-labels {
-  display: flex;
-  justify-content: space-between;
+.score-buttons-container {
   margin-top: 0.5rem;
-  font-size: 0.8rem;
-  color: #7f8c8d;
+}
+
+.score-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.score-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-medium);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.score-btn:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-secondary);
+}
+
+.score-btn-selected {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+.score-btn-selected:hover {
+  background: var(--accent-secondary);
+  border-color: var(--accent-secondary);
+}
+
+.score-btn-unselected {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+}
+
+.score-btn:disabled {
+  background: #ccc;
+  color: #666;
+  border-color: #ccc;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.score-btn:disabled:hover {
+  background: #ccc;
+  border-color: #ccc;
 }
 
 .application-content {
@@ -1437,8 +1878,14 @@ mark {
   color: white;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--accent-secondary);
+}
+
+.btn-primary:disabled {
+  background: #ccc;
+  color: #666;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
@@ -1446,8 +1893,14 @@ mark {
   color: white;
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: var(--accent-primary);
+}
+
+.btn-secondary:disabled {
+  background: #ccc;
+  color: #666;
+  cursor: not-allowed;
 }
 
 .btn-danger {
@@ -1624,18 +2077,26 @@ mark {
   appearance: none;
 }
 
-.previous-select:hover {
+.previous-select:hover:not(:disabled) {
   background: var(--border-medium)
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23211c1b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")
     no-repeat right 1rem center;
 }
 
-.previous-select:focus {
+.previous-select:focus:not(:disabled) {
   outline: none;
   box-shadow: 0 0 0 3px rgba(111, 144, 209, 0.1);
   background: var(--border-medium)
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23211c1b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")
     no-repeat right 1rem center;
+}
+
+.previous-select:disabled {
+  background: #ccc
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E")
+    no-repeat right 1rem center;
+  color: #666;
+  cursor: not-allowed;
 }
 
 /* Style the dropdown options */
