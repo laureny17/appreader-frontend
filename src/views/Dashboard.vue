@@ -27,12 +27,11 @@
         <div class="stat-card">
           <h3>Apps Read</h3>
           <p class="stat-number">{{ myStats.readCount }}</p>
-          <p class="stat-label">out of {{ requiredReadsPerReader }} required</p>
+          <p class="stat-label">out of {{ requiredReads }} required</p>
         </div>
         <div class="stat-card">
           <h3>Apps Skipped</h3>
           <p class="stat-number">{{ myStats.skipCount }}</p>
-          <p class="stat-label">applications skipped</p>
         </div>
         <div class="stat-card">
           <h3>Average Time</h3>
@@ -48,27 +47,6 @@
               :style="{ width: progressPercentage + '%' }"
             ></div>
           </div>
-        </div>
-      </div>
-
-      <div class="scatter-plot-section">
-        <h2>Reader Comparison</h2>
-        <div class="plot-container">
-          <div
-            class="plot-point"
-            v-for="reader in readerStatsStore.readers"
-            :key="reader.userId"
-            :style="getPointStyle(reader)"
-            :title="`${reader.name}: ${reader.readCount} reads, ${Math.round(reader.averageTime)}s avg`"
-          >
-            <span v-if="reader.userId === authStore.user?.id" class="user-indicator"
-              >👁</span
-            >
-          </div>
-        </div>
-        <div class="plot-axes">
-          <div class="axis-label axis-x"># Reads</div>
-          <div class="axis-label axis-y">Avg Time</div>
         </div>
       </div>
 
@@ -104,14 +82,6 @@
           <p>No reader stats available yet.</p>
         </div>
         <div v-else class="leaderboard">
-          <div class="leaderboard-header">
-            <div class="rank-header">Rank</div>
-            <div class="name-header">Reader</div>
-            <div class="stats-header">Apps Read</div>
-            <div class="stats-header">Apps Skipped</div>
-            <div class="stats-header">Avg Time</div>
-            <div class="progress-header">Progress</div>
-          </div>
           <div
             v-for="(reader, index) in readerStatsStore.sortedReaders"
             :key="reader.userId"
@@ -121,20 +91,10 @@
             <div class="rank">{{ index + 1 }}</div>
             <div class="reader-info">
               <div class="name">{{ reader.name }}</div>
-            </div>
-            <div class="stats">{{ reader.readCount }}</div>
-            <div class="stats">{{ reader.skipCount }}</div>
-            <div class="stats">{{ Math.round(reader.averageTime) }}s</div>
-            <div class="progress">
-              <div class="progress-bar-small">
-                <div
-                  class="progress-fill-small"
-                  :style="{ width: getReaderProgress(reader) + '%' }"
-                ></div>
+              <div class="stats">
+                {{ reader.readCount }} reads • {{ reader.skipCount }} skips •
+                {{ Math.round(reader.averageTime) }}s avg
               </div>
-              <span class="progress-text"
-                >{{ Math.round(getReaderProgress(reader)) }}%</span
-              >
             </div>
           </div>
         </div>
@@ -165,8 +125,6 @@ const readerStatsStore = useReaderStatsStore();
 
 const isRefreshing = ref(false);
 const requiredReads = ref(0);
-const totalApplications = ref(0);
-const verifiedReadersCount = ref(0);
 
 const myStats = computed(() => {
   const myUserId = authStore.user?.id;
@@ -182,17 +140,9 @@ const myStats = computed(() => {
   );
 });
 
-const requiredReadsPerReader = computed(() => {
-  if (!eventsStore.currentEvent || verifiedReadersCount.value === 0) return 0;
-  const readsPerApp = eventsStore.currentEvent.requiredReadsPerApp;
-  return Math.ceil(
-    (readsPerApp * totalApplications.value) / verifiedReadersCount.value
-  );
-});
-
 const progressPercentage = computed(() => {
-  if (requiredReadsPerReader.value === 0) return 0;
-  return (myStats.value.readCount / requiredReadsPerReader.value) * 100;
+  if (requiredReads.value === 0) return 0;
+  return (myStats.value.readCount / requiredReads.value) * 100;
 });
 
 const handleLogout = () => {
@@ -209,17 +159,10 @@ const refreshData = async () => {
 
   isRefreshing.value = true;
   try {
+    // Load applications for the current event
     const eventId =
       eventsStore.currentEvent.eventId || eventsStore.currentEvent._id;
-
-    // Load applications for the current event
     await applicationsStore.loadApplicationsForEvent(eventId);
-
-    // Load total applications count
-    await loadApplicationsCount(eventId);
-
-    // Load verified readers count
-    await loadVerifiedReadersCount(eventId);
 
     // Load user progress to get required reads
     await loadUserProgress();
@@ -233,30 +176,6 @@ const refreshData = async () => {
   }
 };
 
-const loadApplicationsCount = async (eventId: string) => {
-  try {
-    const applications = await api.applicationStorage.getApplicationsByEvent(
-      eventId
-    );
-    totalApplications.value = applications.length;
-  } catch (err) {
-    console.error("Failed to load applications count:", err);
-    totalApplications.value = 0;
-  }
-};
-
-const loadVerifiedReadersCount = async (eventId: string) => {
-  try {
-    const verifiedReaders = await api.eventDirectory.getVerifiedReadersForEvent(
-      eventId
-    );
-    verifiedReadersCount.value = verifiedReaders.length;
-  } catch (err) {
-    console.error("Failed to load verified readers count:", err);
-    verifiedReadersCount.value = 0;
-  }
-};
-
 const loadUserProgress = async () => {
   if (!authStore.user || !eventsStore.currentEvent) return;
 
@@ -267,16 +186,11 @@ const loadUserProgress = async () => {
       authStore.user.id,
       eventId
     );
-    requiredReads.value = progress.totalNeeded;
+    requiredReads.value = progress.requiredReads;
   } catch (err) {
     console.error("Failed to load user progress:", err);
     requiredReads.value = 0;
   }
-};
-
-const getReaderProgress = (reader: any) => {
-  if (requiredReadsPerReader.value === 0) return 0;
-  return (reader.readCount / requiredReadsPerReader.value) * 100;
 };
 
 onMounted(async () => {
@@ -462,110 +376,5 @@ onMounted(async () => {
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--accent-primary);
-}
-
-.leaderboard-section {
-  background: var(--bg-primary);
-  padding: 1.5rem;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  margin-bottom: 2rem;
-  border: 1px solid var(--border-light);
-}
-
-.leaderboard-section h2 {
-  margin: 0 0 1rem 0;
-  color: var(--text-primary);
-  font-family: "Kufam", sans-serif;
-}
-
-.leaderboard-header {
-  display: grid;
-  grid-template-columns: 60px 1fr 80px 80px 80px 120px;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  font-weight: 600;
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 0.5rem;
-}
-
-.leaderboard-item {
-  display: grid;
-  grid-template-columns: 60px 1fr 80px 80px 80px 120px;
-  gap: 1rem;
-  padding: 1rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-light);
-  margin-bottom: 0.5rem;
-  align-items: center;
-  transition: all 0.2s;
-}
-
-.leaderboard-item:hover {
-  background: var(--bg-secondary);
-}
-
-.leaderboard-item.current-user {
-  background: rgba(255, 103, 66, 0.1);
-  border-color: var(--accent-primary);
-}
-
-.rank {
-  font-weight: bold;
-  color: var(--text-primary);
-  text-align: center;
-}
-
-.reader-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.name {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.stats {
-  text-align: center;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.progress {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.progress-bar-small {
-  flex: 1;
-  height: 6px;
-  background: var(--border-light);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.progress-fill-small {
-  height: 100%;
-  background: var(--accent-primary);
-  transition: width 0.3s ease;
-}
-
-.progress-text {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-  min-width: 35px;
-}
-
-.loading,
-.empty-state {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
 }
 </style>

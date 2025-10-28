@@ -879,6 +879,13 @@ const flagApplication = async () => {
     return;
   }
 
+  console.log("DEBUG: Flagging application:", {
+    applicationId: currentApp.value._id,
+    applicationName: currentApp.value.applicantID,
+    isViewingPreviousRead: isViewingPreviousRead.value,
+    userId: authStore.user.id,
+  });
+
   try {
     // 🔍 Always refresh flag status first from backend
     const isFlaggedInBackend =
@@ -886,6 +893,7 @@ const flagApplication = async () => {
         authStore.user.id,
         currentApp.value._id
       );
+    console.log("DEBUG: Flag status from backend:", isFlaggedInBackend);
     isCurrentAppFlagged.value = isFlaggedInBackend;
 
     // 🟥 If flagged already → UNFLAG
@@ -917,24 +925,29 @@ const flagApplication = async () => {
 
     // 🟩 If not flagged → FLAG
     console.log("Flagging application...");
-    const existingReview = await api.reviewRecords.getUserScoresForApplication(
-      authStore.user.id,
-      currentApp.value._id
-    );
 
-    let reviewId;
-    if (existingReview && existingReview.review) {
-      reviewId = existingReview.review;
-    } else {
-      const newReview = await api.applications.submitReview(
-        authStore.user.id,
-        currentApp.value._id,
-        new Date().toISOString()
-      );
-      reviewId = newReview.review;
+    // Use flagAndSkip with the current assignment
+    if (!applicationsStore.currentAssignment) {
+      throw new Error("No current assignment to flag");
     }
 
-    await api.reviewRecords.addRedFlag(authStore.user.id, reviewId);
+    console.log(
+      "Using flagAndSkip with assignment:",
+      applicationsStore.currentAssignment
+    );
+
+    try {
+      const flagResult = await api.applicationAssignments.flagAndSkip(
+        authStore.user.id,
+        applicationsStore.currentAssignment,
+        "Flagged for ineligibility"
+      );
+      console.log("Application flagged and skipped:", flagResult);
+    } catch (err) {
+      console.error("flagAndSkip failed:", err);
+      throw err;
+    }
+
     isCurrentAppFlagged.value = true;
     hasTouchedSliders.value = false;
     // Clear all scores when flagging
@@ -942,7 +955,33 @@ const flagApplication = async () => {
       scores.value[criterion.name] = undefined;
     });
     await loadPreviousReads();
-    alert("Application flagged successfully!");
+
+    // Automatically move to next application after flagging
+    try {
+      console.log("DEBUG: About to load next application...");
+      await loadApplicationData();
+      console.log(
+        "DEBUG: Loaded next application:",
+        currentApp.value?.applicantID
+      );
+
+      // Reset flagging state for the new application
+      isCurrentAppFlagged.value = false;
+      hasTouchedSliders.value = false;
+
+      // Reset previous read state when moving to next application
+      isViewingPreviousRead.value = false;
+      tempApplication.value = null;
+      tempAIComments.value = [];
+
+      alert("Application flagged successfully! Moving to next application.");
+    } catch (err) {
+      // If no more applications, clear current application and show message
+      applicationsStore.clearCurrentApplication();
+      alert(
+        "Application flagged successfully! No more applications available."
+      );
+    }
   } catch (err) {
     console.error("Failed to flag/unflag:", err);
     alert(
@@ -1015,80 +1054,33 @@ const submitReview = async () => {
   }
 
   try {
-    // Check if review already exists
-    console.log(
-      "Checking for existing review for user:",
+    // First submit the review
+    const review = await api.applications.submitReview(
       authStore.user.id,
-      "app:",
-      appId
+      appId,
+      new Date().toISOString()
     );
-    const existingReview = await api.reviewRecords.getUserScoresForApplication(
-      authStore.user.id,
-      appId
-    );
-    console.log("Existing review result:", existingReview);
 
-    let reviewId;
-    if (existingReview && existingReview.review) {
-      console.log("Using existing review ID:", existingReview.review);
-      reviewId = existingReview.review;
-
-      // Update scores for existing review
-      for (const [criterionName, score] of Object.entries(scores.value)) {
-        await api.reviewRecords.setScore(
-          authStore.user.id,
-          reviewId,
-          criterionName,
-          Number(score)
-        );
-      }
-
-      // Submit and increment (without creating new review)
-      const activeTimeSeconds = Math.round(
-        activeTimeTracker.value.totalActiveSeconds
-      );
-      await api.applications.submitAndIncrement(
+    // Then set all the scores
+    for (const [criterionName, score] of Object.entries(scores.value)) {
+      await api.applications.setScore(
         authStore.user.id,
-        applicationsStore.currentAssignment,
-        new Date().toISOString(),
-        activeTimeSeconds
+        review.review,
+        criterionName,
+        Number(score)
       );
-    } else {
-      // No existing review - submitAndIncrement will create the review AND handle scores
-      console.log(
-        "No existing review - submitAndIncrement will create review and handle scores"
-      );
-
-      const activeTimeSeconds = Math.round(
-        activeTimeTracker.value.totalActiveSeconds
-      );
-
-      // submitAndIncrement creates the review internally, so we need to set scores after
-      await api.applications.submitAndIncrement(
-        authStore.user.id,
-        applicationsStore.currentAssignment,
-        new Date().toISOString(),
-        activeTimeSeconds
-      );
-
-      // Now set the scores on the newly created review
-      // We need to get the review ID that was created
-      const newReview = await api.reviewRecords.getUserScoresForApplication(
-        authStore.user.id,
-        appId
-      );
-
-      if (newReview && newReview.review) {
-        for (const [criterionName, score] of Object.entries(scores.value)) {
-          await api.reviewRecords.setScore(
-            authStore.user.id,
-            newReview.review,
-            criterionName,
-            Number(score)
-          );
-        }
-      }
     }
+
+    // Finally, submit and increment
+    const activeTimeSeconds = Math.round(
+      activeTimeTracker.value.totalActiveSeconds
+    );
+    await api.applications.submitAndIncrement(
+      authStore.user.id,
+      applicationsStore.currentAssignment,
+      new Date().toISOString(),
+      activeTimeSeconds
+    );
 
     currentReads.value++;
     activeTimeTracker.value.totalActiveSeconds = 0;

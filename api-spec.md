@@ -310,6 +310,10 @@
 
 **Effects:**
 
+- Deletes any existing review record for this application by this user (if it exists).
+- Removes any flags associated with the deleted review.
+- Deletes any scores and comments associated with the deleted review.
+- Creates a skip record (increments skip count).
 - Adds the user to the readers set for the related `AppStatus`.
 - Deletes the current assignment.
 
@@ -610,6 +614,241 @@
 "applicantID": "string",
 "applicantYear": "string",
 "answers": ["string"]
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationStorage/\_bulkImportApplications
+
+**Description:** Bulk import applications from CSV data.
+
+**Requirements:**
+
+- Event exists and is valid
+- `importedBy` user exists and is admin
+- Each application has valid `applicantID`, `applicantYear`, and `answers` array
+- `answers` array length must match the number of questions for the event
+- No duplicate `applicantID` values within the same event
+
+**Effects:**
+
+- Creates Application documents for each valid application
+- Calls `generateAIComments` for each successfully created application
+- Returns count of successful imports and list of errors for failed imports
+
+**Request Body:**
+{
+"event": "string (event ID)",
+"applications": [
+{
+"applicantID": "string",
+"applicantYear": "string",
+"answers": ["string", "string", ...]
+}
+],
+"importedBy": "string (user ID)"
+}
+
+**Success Response Body (Action):**
+{
+"success": true,
+"importedCount": 5,
+"errors": [
+{
+"applicantID": "string",
+"error": "string"
+}
+]
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationStorage/\_getFlaggedApplications
+
+**Description:** Get all flagged applications for an event (for admin dashboard). This endpoint looks for applications that have been flagged by readers through the ReviewRecords system.
+
+**Requirements:**
+
+- Event exists
+
+**Effects:**
+
+- Returns all flagged applications with flagging and disqualification details
+- Sources flagging data from ReviewRecords.redFlags collection
+- Sorted by review submission time (newest first)
+- flagReason will be "Flagged by reader" (default value)
+
+**Request Body:**
+{
+"event": "string (event ID)"
+}
+
+**Success Response Body (Query):**
+[
+{
+"\_id": "string",
+"applicantID": "string",
+"applicantYear": "string",
+"answers": ["string", "string", ...],
+"flaggedBy": "string (user who flagged the review)",
+"flaggedAt": "string (ISO date - review submission time)",
+"flagReason": "string (always 'Flagged by reader')",
+"disqualified": boolean,
+"disqualificationReason": "string",
+"disqualifiedAt": "string (ISO date)",
+"disqualifiedBy": "string"
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationStorage/\_disqualifyApplication
+
+**Description:** Officially disqualify a flagged application (admin action).
+
+**Requirements:**
+
+- Application exists and is flagged
+- disqualifiedBy user is admin
+- reason is non-empty
+
+**Effects:**
+
+- Set disqualification details on the application
+- Log the disqualification action
+
+**Request Body:**
+{
+"application": "string (application ID)",
+"reason": "string (disqualification reason)",
+"disqualifiedBy": "string (admin user ID)",
+"disqualifiedAt": "string (ISO date)"
+}
+
+**Success Response Body (Action):**
+{
+"success": true
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationStorage/\_removeFlag
+
+**Description:** Remove flag from an application (admin action). This endpoint removes the actual red flags from the ReviewRecords system.
+
+**Requirements:**
+
+- Application exists and is flagged
+- removedBy user is admin
+
+**Effects:**
+
+- Remove red flags from ReviewRecords.redFlags collection
+- Keep disqualification status if already disqualified
+- Log the flag removal action
+
+**Request Body:**
+{
+"application": "string (application ID)",
+"removedBy": "string (admin user ID)",
+"removedAt": "string (ISO date)"
+}
+
+**Success Response Body (Action):**
+{
+"success": true
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationStorage/\_undisqualifyApplication
+
+**Description:** Remove disqualification status from an application (admin action).
+
+**Requirements:**
+
+- Admin authorization required
+- Application must be currently disqualified
+- Application must exist
+
+**Effects:**
+
+- Removes disqualification status from the application
+- Preserves flagging status (application remains flagged if it was flagged)
+- Logs the un-disqualification action with timestamp and admin user
+
+**Request Body:**
+{
+"application": "string (application ID)",
+"undisqualifiedBy": "string (admin user ID)",
+"reason": "string (optional reason for un-disqualification)"
+}
+
+**Success Response Body:**
+{
+"success": true,
+"message": "Application un-disqualified successfully"
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationStorage/\_getDisqualifiedApplications
+
+**Description:** Get all disqualified applications for CSV export.
+
+**Requirements:**
+
+- Event exists
+
+**Effects:**
+
+- Returns all disqualified applications with disqualification details
+- Sorted by disqualifiedAt (newest first)
+
+**Request Body:**
+{
+"event": "string (event ID)"
+}
+
+**Success Response Body (Query):**
+[
+{
+"_id": "string",
+"applicantID": "string",
+"disqualificationReason": "string",
+"disqualifiedAt": "string (ISO date)",
+"disqualifiedBy": "string"
 }
 ]
 
@@ -1072,7 +1311,7 @@
 
 ### POST /api/ApplicationAssignments/flagAndSkip
 
-**Description:** Flags an application and skips to the next one (without requiring a review).
+**Description:** Flags an application and skips to the next one by creating a review record with a red flag.
 
 **Requirements:**
 
@@ -1080,8 +1319,10 @@
 
 **Effects:**
 
-- Creates a flag record linked to the application.
-- Adds the user to the readers set for the related AppStatus.
+- Creates a review record with current timestamp (so flagged applications appear in history).
+- Adds a red flag to the review (proper flagging in ReviewRecords system).
+- Does NOT create skip record (flagging should not increment skip count).
+- Adds user to readers set (prevents random re-assignment, but accessible via dropdown).
 - Deletes the current assignment.
 
 **Request Body:**

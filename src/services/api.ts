@@ -60,24 +60,9 @@ async function apiRequest<T = any>(
     const data = await response.json();
     console.log("API Response data:", data);
 
-    // Handle null or undefined response (but allow null for certain endpoints)
-    if (data === undefined) {
-      throw new ApiError("Server returned undefined response");
-    }
-
-    // Allow null responses for certain endpoints that legitimately return null
-    if (data === null) {
-      const allowNullEndpoints = [
-        "/ReviewRecords/_getUserScoresForApplication",
-        "/ReviewRecords/_getReaderStatsForEvent",
-        "/ApplicationAssignments/_getSkipStatsForEvent",
-      ];
-
-      if (allowNullEndpoints.some((endpoint) => url.includes(endpoint))) {
-        return null as T;
-      } else {
-        throw new ApiError("Server returned null response");
-      }
+    // Handle null or undefined response
+    if (data === null || data === undefined) {
+      throw new ApiError("Server returned null response");
     }
 
     if (data.error) {
@@ -129,7 +114,7 @@ export const api = {
       }),
 
     getNameByUserId: (userId: string) =>
-      apiRequest<{ name: string }>("/AuthAccounts/_getNameByUserId", {
+      apiRequest<string>("/AuthAccounts/_getNameByUserId", {
         method: "POST",
         body: JSON.stringify({ userId }),
       }),
@@ -203,15 +188,29 @@ export const api = {
         body: JSON.stringify({ application }),
       }),
 
-    getSkipStatsForEvent: (event: string) =>
-      apiRequest<
-        Array<{
-          userId: string;
-          skipCount: number;
-        }>
-      >("/ApplicationAssignments/_getSkipStatsForEvent", {
+    getSkipStatsForEvent: (eventId: string) =>
+      apiRequest<Array<{ userId: string; skipCount: number }>>(
+        "/ApplicationAssignments/_getSkipStatsForEvent",
+        {
+          method: "POST",
+          body: JSON.stringify({ event: eventId }),
+        }
+      ),
+
+    flagAndSkip: (
+      user: string,
+      assignment: {
+        _id: string;
+        user: string;
+        application: string;
+        startTime: string;
+        event: string;
+      },
+      reason: string
+    ) =>
+      apiRequest<{ success: boolean }>("/ApplicationAssignments/flagAndSkip", {
         method: "POST",
-        body: JSON.stringify({ event }),
+        body: JSON.stringify({ user, assignment, reason }),
       }),
   },
 
@@ -354,18 +353,6 @@ export const api = {
         body: JSON.stringify({ user, event }),
       }),
 
-    getReaderStatsForEvent: (event: string) =>
-      apiRequest<
-        Array<{
-          userId: string;
-          readCount: number;
-          totalTime: number;
-        }>
-      >("/ReviewRecords/_getReaderStatsForEvent", {
-        method: "POST",
-        body: JSON.stringify({ event }),
-      }),
-
     getUserScoresForApplication: (user: string, application: string) =>
       apiRequest<{
         review: string;
@@ -373,18 +360,6 @@ export const api = {
       } | null>("/ReviewRecords/_getUserScoresForApplication", {
         method: "POST",
         body: JSON.stringify({ user, application }),
-      }),
-
-    getReviewsWithScoresByApplication: (application: string) =>
-      apiRequest<
-        Array<{
-          review: string;
-          author: string;
-          scores: Array<{ criterion: string; value: number }>;
-        }>
-      >("/ReviewRecords/_getReviewsWithScoresByApplication", {
-        method: "POST",
-        body: JSON.stringify({ application }),
       }),
 
     editReview: (editor: string, review: string) =>
@@ -421,6 +396,15 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ user, application }),
       }),
+
+    deleteReview: (reviewId: string, user: string) =>
+      apiRequest<{ success: true; message: string }>(
+        "/ReviewRecords/deleteReview",
+        {
+          method: "POST",
+          body: JSON.stringify({ reviewId, user }),
+        }
+      ),
   },
 
   // Event Directory endpoints
@@ -674,20 +658,43 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ event }),
       }),
+
+    bulkImportApplications: (
+      event: string,
+      applications: Array<{
+        applicantID: string;
+        applicantYear: string;
+        answers: string[];
+      }>,
+      importedBy: string
+    ) =>
+      apiRequest<{
+        success: boolean;
+        importedCount: number;
+        errors: Array<{
+          applicantID: string;
+          error: string;
+        }>;
+      }>("/ApplicationStorage/_bulkImportApplications", {
+        method: "POST",
+        body: JSON.stringify({
+          event,
+          applications,
+          importedBy,
+        }),
+      }),
   },
 
-  // Reader Statistics endpoints (these would need to be implemented in backend)
+  // Reader Statistics endpoints
   readerStats: {
     getReaderStats: (eventId: string) =>
       apiRequest<
         Array<{
           userId: string;
-          name: string;
           readCount: number;
-          skipCount: number;
-          averageTime: number;
+          totalTime: number;
         }>
-      >("/ReaderStats/getReaderStats", {
+      >("/ReviewRecords/_getReaderStatsForEvent", {
         method: "POST",
         body: JSON.stringify({ event: eventId }),
       }),
@@ -797,7 +804,7 @@ export const api = {
             user,
             assignment,
             endTime,
-            activeTime: activeTimeSeconds || 0,
+            activeTimeSeconds: activeTimeSeconds || 0,
           }),
         }
       ),
@@ -811,70 +818,6 @@ export const api = {
         body: JSON.stringify({ user, event }),
       }),
 
-    // Flagged Applications endpoints
-    getFlaggedApplications: (event: string) =>
-      apiRequest<
-        Array<{
-          _id: string;
-          applicantID: string;
-          applicantYear: string;
-          answers: string[];
-          flaggedBy: string;
-          flaggedAt: string;
-          flagReason: string;
-          disqualified: boolean;
-          disqualificationReason?: string;
-          disqualifiedAt?: string;
-          disqualifiedBy?: string;
-        }>
-      >("/ApplicationStorage/_getFlaggedApplications", {
-        method: "POST",
-        body: JSON.stringify({ event }),
-      }),
-
-    disqualifyApplication: (
-      applicationId: string,
-      reason: string,
-      disqualifiedBy: string
-    ) =>
-      apiRequest<{ success: boolean }>(
-        "/ApplicationStorage/_disqualifyApplication",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            application: applicationId,
-            reason,
-            disqualifiedBy,
-            disqualifiedAt: new Date().toISOString(),
-          }),
-        }
-      ),
-
-    removeFlag: (applicationId: string, removedBy: string) =>
-      apiRequest<{ success: boolean }>("/ApplicationStorage/_removeFlag", {
-        method: "POST",
-        body: JSON.stringify({
-          application: applicationId,
-          removedBy,
-          removedAt: new Date().toISOString(),
-        }),
-      }),
-
-    getDisqualifiedApplications: (event: string) =>
-      apiRequest<
-        Array<{
-          _id: string;
-          applicantID: string;
-          disqualificationReason: string;
-          disqualifiedAt: string;
-          disqualifiedBy: string;
-        }>
-      >("/ApplicationStorage/_getDisqualifiedApplications", {
-        method: "POST",
-        body: JSON.stringify({ event }),
-      }),
-
-    // Bulk Import endpoints
     bulkImportApplications: (
       event: string,
       applications: Array<{
@@ -887,7 +830,10 @@ export const api = {
       apiRequest<{
         success: boolean;
         importedCount: number;
-        errors: Array<{ applicantID: string; error: string }>;
+        errors: Array<{
+          applicantID: string;
+          error: string;
+        }>;
       }>("/ApplicationStorage/_bulkImportApplications", {
         method: "POST",
         body: JSON.stringify({

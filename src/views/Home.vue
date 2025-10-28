@@ -31,8 +31,10 @@
               <span class="stat-value">{{ userSkipCount }}</span>
             </div>
             <div class="stat-item">
-              <span class="stat-label">TIME/READ:</span>
-              <span class="stat-value">{{ Math.round(averageReadTime) }}s</span>
+              <span class="stat-label">RATIO:</span>
+              <span class="stat-value">{{
+                getReadToSkipRatio(userReadCount, userSkipCount)
+              }}</span>
             </div>
           </div>
 
@@ -52,7 +54,6 @@
               <span>NAME</span>
               <span># READ</span>
               <span># SKIPS</span>
-              <span>TIME/READ</span>
             </div>
             <div
               class="table-row"
@@ -71,11 +72,6 @@
                 class="skip-count"
                 :class="getSkipCountClass(reader.skipCount)"
                 >{{ reader.skipCount }}</span
-              >
-              <span
-                class="time-read"
-                :class="getTimeReadClass(reader.averageTime)"
-                >{{ Math.round(reader.averageTime) }}s</span
               >
             </div>
           </div>
@@ -113,11 +109,18 @@ const scatterChart = ref<HTMLCanvasElement | null>(null);
 let chartInstance: Chart | null = null;
 
 const currentUserId = computed(() => authStore.user?.id || "");
-const currentUser = computed(
-  () =>
-    readerStatsStore.readers.find((r) => r.userId === currentUserId.value) ||
-    readerStatsStore.readers[0]
-);
+const currentUser = computed(() => {
+  const userId = currentUserId.value;
+  if (!userId) return null;
+
+  const user = readerStatsStore.readers.find((r) => r.userId === userId);
+  console.log("Current user lookup:", {
+    userId,
+    found: !!user,
+    totalReaders: readerStatsStore.readers.length,
+  });
+  return user || null;
+});
 const userReadCount = computed(() => currentUser.value?.readCount || 0);
 const userSkipCount = computed(() => currentUser.value?.skipCount || 0);
 const averageReadTime = computed(() => currentUser.value?.averageTime || 0);
@@ -191,7 +194,10 @@ const createScatterChart = () => {
   // Prepare data
   const chartData = readers.value.map((reader) => ({
     x: reader.readCount,
-    y: reader.averageTime,
+    y:
+      reader.skipCount > 0
+        ? reader.readCount / reader.skipCount
+        : reader.readCount,
     label: reader.name,
     userId: reader.userId,
   }));
@@ -275,7 +281,7 @@ const createScatterChart = () => {
         y: {
           title: {
             display: true,
-            text: "Average Time per App (seconds)",
+            text: "Read to Skip Ratio",
             font: {
               family: "Nunito, sans-serif",
               size: 12,
@@ -287,7 +293,7 @@ const createScatterChart = () => {
           ticks: {
             maxTicksLimit: 5,
             callback: function (value) {
-              return Math.round(Number(value)) + "s";
+              return Math.round(Number(value) * 10) / 10;
             },
             font: {
               family: "Nunito, sans-serif",
@@ -318,6 +324,19 @@ const getTimeReadClass = (time: number) => {
     readers.value.length;
   if (time >= avgTime * 1.2) return "good";
   if (time <= avgTime * 0.8) return "bad";
+  return "neutral";
+};
+
+const getReadToSkipRatio = (readCount: number, skipCount: number) => {
+  if (skipCount === 0) return readCount > 0 ? "∞" : "0";
+  return (readCount / skipCount).toFixed(1);
+};
+
+const getRatioClass = (readCount: number, skipCount: number) => {
+  if (skipCount === 0) return readCount > 0 ? "good" : "neutral";
+  const ratio = readCount / skipCount;
+  if (ratio >= 3) return "good";
+  if (ratio <= 1) return "bad";
   return "neutral";
 };
 
@@ -359,82 +378,27 @@ const loadReaderStats = async () => {
     // Load verified readers count
     await loadVerifiedReadersCount(eventId);
 
-    // Since ReaderStats endpoint doesn't exist, create stats from available data
-    await createReaderStatsFromData(eventId);
+    // Use the working reader stats store method
+    await readerStatsStore.loadReaderStats(eventId);
   }
 };
 
-const createReaderStatsFromData = async (eventId: string) => {
-  try {
-    // Get all verified readers for the event
-    const verifiedReaders = await api.eventDirectory.getVerifiedReadersForEvent(
-      eventId
-    );
-
-    // Get read stats and skip stats from the new endpoints
-    const [readStats, skipStats] = await Promise.allSettled([
-      api.reviewRecords.getReaderStatsForEvent(eventId),
-      api.applicationAssignments.getSkipStatsForEvent(eventId),
-    ]);
-
-    const readStatsData =
-      readStats.status === "fulfilled" ? readStats.value : [];
-    const skipStatsData =
-      skipStats.status === "fulfilled" ? skipStats.value : [];
-
-    if (skipStats.status === "rejected") {
-      console.warn(
-        "Skip stats endpoint failed, using empty skip data:",
-        skipStats.reason
-      );
-    }
-
-    // Create reader stats by combining the data
-    const readerStats = [];
-
-    for (const reader of verifiedReaders) {
+// Watch for changes in current event and reload reader stats
+watch(
+  () => eventsStore.currentEvent?._id,
+  async (newEventId, oldEventId) => {
+    if (newEventId && newEventId !== oldEventId) {
+      console.log("Event changed, reloading reader stats for:", newEventId);
       try {
-        // Get user's name
-        const userName = await api.auth.getNameByUserId(reader.user);
-
-        // Find this reader's stats
-        const reads = readStatsData.find((r) => r.userId === reader.user);
-        const skips = skipStatsData.find((s) => s.userId === reader.user);
-
-        const readCount = reads?.readCount || 0;
-        const skipCount = skips?.skipCount || 0;
-        const averageTime =
-          reads && reads.readCount > 0
-            ? Math.round(reads.totalTime / reads.readCount)
-            : 0;
-
-        readerStats.push({
-          userId: reader.user,
-          name: typeof userName === "string" ? userName : reader.user,
-          readCount,
-          skipCount,
-          averageTime,
-        });
+        await loadReaderStats();
+        updateCountdown(); // Update countdown for new event
       } catch (err) {
-        console.warn(`Failed to load stats for reader ${reader.user}:`, err);
-        // Add reader with zero stats
-        readerStats.push({
-          userId: reader.user,
-          name: reader.user,
-          readCount: 0,
-          skipCount: 0,
-          averageTime: 0,
-        });
+        console.error("Error while loading reader stats for new event:", err);
       }
     }
-
-    // Update the reader stats store
-    readerStatsStore.setReaders(readerStats);
-  } catch (err) {
-    console.error("Failed to create reader stats:", err);
-    readerStatsStore.setReaders([]);
-  }
-};
+  },
+  { immediate: false }
+);
 
 onMounted(async () => {
   if (!authStore.isAuthenticated) {

@@ -83,6 +83,91 @@
           </div>
         </div>
 
+        <!-- Event Settings Section -->
+        <div class="config-section">
+          <h2>EVENT SETTINGS</h2>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label for="endDate">Reading Deadline *</label>
+              <input
+                type="datetime-local"
+                id="endDate"
+                v-model="eventEndDate"
+                class="form-input"
+                required
+              />
+              <p class="setting-description">
+                Set when the reading period ends. This is required.
+              </p>
+            </div>
+            <div class="setting-item">
+              <label for="requiredReads">Required Reads Per App</label>
+              <input
+                type="number"
+                id="requiredReads"
+                v-model.number="requiredReadsPerApp"
+                min="1"
+                max="10"
+                class="form-input"
+              />
+              <p class="setting-description">
+                How many readers must review each application.
+              </p>
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button
+              @click="saveEventSettings"
+              :disabled="savingSettings"
+              class="btn btn-primary"
+            >
+              {{ savingSettings ? "Saving..." : "Save Settings" }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Eligibility Criteria Section -->
+        <div class="eligibility-section">
+          <h2>ELIGIBILITY CRITERIA</h2>
+          <div class="eligibility-container">
+            <div class="criteria-list">
+              <div
+                v-for="(criterion, index) in eligibilityCriteria"
+                :key="index"
+                class="criterion-item"
+              >
+                <input
+                  v-model="eligibilityCriteria[index]"
+                  type="text"
+                  :placeholder="`Eligibility criterion ${index + 1}`"
+                  class="criterion-input"
+                />
+                <button
+                  @click="removeCriterion(index)"
+                  class="btn btn-remove btn-small"
+                >
+                  ×
+                </button>
+              </div>
+              <div v-if="eligibilityCriteria.length === 0" class="empty-state">
+                No eligibility criteria defined.
+              </div>
+            </div>
+            <div class="eligibility-actions">
+              <button @click="addEligibilityCriterion" class="btn btn-add">
+                + ADD CRITERION
+              </button>
+              <button
+                @click="saveEligibilityCriteria"
+                class="btn btn-primary"
+                :disabled="savingCriteria"
+              >
+                {{ savingCriteria ? "SAVING..." : "SAVE CHANGES" }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Rubric Section -->
         <div class="config-section">
           <h2>RUBRIC</h2>
@@ -172,50 +257,9 @@
           </div>
         </div>
 
-        <div class="eligibility-section">
-          <h2>ELIGIBILITY CRITERIA</h2>
-          <div class="eligibility-container">
-            <div class="criteria-list">
-              <div
-                v-for="(criterion, index) in eligibilityCriteria"
-                :key="index"
-                class="criterion-item"
-              >
-                <input
-                  v-model="eligibilityCriteria[index]"
-                  type="text"
-                  :placeholder="`Eligibility criterion ${index + 1}`"
-                  class="criterion-input"
-                />
-                <button
-                  @click="removeCriterion(index)"
-                  class="btn btn-remove-small"
-                >
-                  ×
-                </button>
-              </div>
-              <div v-if="eligibilityCriteria.length === 0" class="empty-state">
-                No eligibility criteria defined.
-              </div>
-            </div>
-            <div class="eligibility-actions">
-              <button @click="addEligibilityCriterion" class="btn btn-add">
-                + ADD CRITERION
-              </button>
-              <button
-                @click="saveEligibilityCriteria"
-                class="btn btn-primary"
-                :disabled="savingCriteria"
-              >
-                {{ savingCriteria ? "SAVING..." : "SAVE CHANGES" }}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Reviews & Scoring Section -->
-        <div class="reviews-section">
-          <h2>REVIEWS & SCORING</h2>
+        <!-- Flagged Applications Section -->
+        <div class="flagged-applications-section">
+          <h2>FLAGGED APPLICATIONS</h2>
 
           <!-- Search for Single Applicant -->
           <div class="search-applicant-section">
@@ -233,63 +277,110 @@
             </div>
           </div>
 
-          <!-- Weighted Averages -->
-          <div class="weighted-averages-section">
-            <h3>Calculate Weighted Averages & Export</h3>
+          <div class="flagged-actions">
+            <button @click="loadFlaggedApplications" class="btn btn-primary">
+              LOAD FLAGGED APPLICATIONS
+            </button>
+            <button
+              @click="exportDisqualifiedCSV"
+              class="btn btn-export"
+              :disabled="disqualifiedApplications.length === 0"
+            >
+              EXPORT DISQUALIFIED CSV
+            </button>
+          </div>
 
-            <div class="weights-container">
+          <!-- Flagged Applications Table -->
+          <div
+            v-if="flaggedApplications.length > 0"
+            class="flagged-table-container"
+          >
+            <h3>Currently Flagged Applications</h3>
+            <div class="flagged-table">
+              <div class="table-header">
+                <span class="applicant-id">Applicant ID</span>
+                <span class="flagged-by">Flagged By</span>
+              </div>
               <div
-                v-for="criterion in currentEventRubric"
-                :key="criterion.name"
-                class="weight-input-group"
+                v-for="app in flaggedApplications"
+                :key="app._id"
+                class="table-row"
               >
-                <label :for="`weight-${criterion.name}`"
-                  >{{ criterion.name }}:</label
-                >
-                <input
-                  :id="`weight-${criterion.name}`"
-                  v-model.number="weights[criterion.name]"
-                  type="number"
-                  :placeholder="`0`"
-                  class="weight-input"
-                  min="0"
-                  step="0.1"
-                />
+                <div class="table-data">
+                  <span class="applicant-id">{{ app.applicantID }}</span>
+                  <span class="flagged-by">{{ app.flaggedByName }}</span>
+                </div>
+                <div class="actions">
+                  <button
+                    @click="viewFlaggedApplication(app._id)"
+                    class="btn btn-secondary btn-small"
+                  >
+                    VIEW
+                  </button>
+                  <button
+                    @click="showDisqualifyModal(app)"
+                    class="btn btn-danger btn-small"
+                    :disabled="app.disqualified"
+                  >
+                    {{ app.disqualified ? "DISQUALIFIED" : "DISQUALIFY" }}
+                  </button>
+                  <button
+                    @click="removeApplicationFlag(app._id)"
+                    class="btn btn-warning btn-small"
+                    :disabled="app.disqualified"
+                  >
+                    REMOVE FLAG
+                  </button>
+                </div>
               </div>
             </div>
+          </div>
 
-            <div class="export-buttons">
-              <button
-                @click="calculateWeightedAverages"
-                class="btn btn-primary"
-              >
-                CALCULATE AVERAGES
-              </button>
-              <button
-                @click="exportToCSV"
-                class="btn btn-export"
-                :disabled="!weightedAverages.length"
-              >
-                EXPORT CSV
-              </button>
-            </div>
+          <div v-else-if="flaggedApplicationsLoaded" class="empty-state">
+            No flagged applications found.
+          </div>
 
-            <!-- Display Results -->
-            <div v-if="weightedAverages.length > 0" class="results-container">
-              <h4>Calculated Averages</h4>
-              <div class="results-list">
-                <div
-                  v-for="(result, index) in weightedAverages"
-                  :key="index"
-                  class="result-item"
+          <!-- Disqualified Applications Table -->
+          <div
+            v-if="disqualifiedApplications.length > 0"
+            class="disqualified-table-container"
+          >
+            <h3>Disqualified Applications</h3>
+            <div class="disqualified-table">
+              <div class="table-header">
+                <span class="applicant-id">Applicant ID</span>
+                <span class="disqualification-reason"
+                  >Disqualification Reason</span
                 >
-                  <span class="result-app">{{ result.applicantID }}:</span>
-                  <span class="result-score">{{
-                    result.weightedAverage.toFixed(2)
+                <span class="disqualified-by">Disqualified By</span>
+              </div>
+              <div
+                v-for="app in disqualifiedApplications"
+                :key="app._id"
+                class="table-row"
+              >
+                <div class="table-data">
+                  <span class="applicant-id">{{ app.applicantID }}</span>
+                  <span class="disqualification-reason">{{
+                    app.disqualificationReason
                   }}</span>
-                  <span class="result-reviews"
-                    >({{ result.numReviews }} reviews)</span
+                  <span class="disqualified-by">{{
+                    app.disqualifiedByName
+                  }}</span>
+                </div>
+                <div class="actions">
+                  <button
+                    @click="viewDisqualifiedApplication(app._id)"
+                    class="btn btn-secondary btn-small"
                   >
+                    VIEW
+                  </button>
+                  <button
+                    @click="undisqualifyApplication(app._id)"
+                    class="btn btn-success btn-small"
+                  >
+                    UN-DISQUALIFY
+                  </button>
                 </div>
               </div>
             </div>
@@ -405,98 +496,68 @@
           </div>
         </div>
 
-        <!-- Flagged Applications Section -->
-        <div class="flagged-applications-section">
-          <h2>FLAGGED APPLICATIONS</h2>
+        <!-- Bulk Export Section -->
+        <div class="reviews-section">
+          <h2>BULK EXPORT</h2>
 
-          <div class="flagged-actions">
-            <button @click="loadFlaggedApplications" class="btn btn-primary">
-              LOAD FLAGGED APPLICATIONS
-            </button>
-            <button
-              @click="exportDisqualifiedCSV"
-              class="btn btn-export"
-              :disabled="disqualifiedApplications.length === 0"
-            >
-              EXPORT DISQUALIFIED CSV
-            </button>
-          </div>
+          <!-- Weighted Averages -->
+          <div class="weighted-averages-section">
+            <h3>Calculate Weighted Averages & Export</h3>
 
-          <!-- Flagged Applications Table -->
-          <div
-            v-if="flaggedApplications.length > 0"
-            class="flagged-table-container"
-          >
-            <h3>Currently Flagged Applications</h3>
-            <div class="flagged-table">
-              <div class="table-header">
-                <span class="applicant-id">Applicant ID</span>
-                <span class="flag-reason">Flag Reason</span>
-                <span class="flagged-by">Flagged By</span>
-                <span class="flagged-at">Flagged At</span>
-                <span class="actions">Actions</span>
-              </div>
+            <div class="weights-container">
               <div
-                v-for="app in flaggedApplications"
-                :key="app._id"
-                class="table-row"
+                v-for="criterion in currentEventRubric"
+                :key="criterion.name"
+                class="weight-input-group"
               >
-                <span class="applicant-id">{{ app.applicantID }}</span>
-                <span class="flag-reason">{{ app.flagReason }}</span>
-                <span class="flagged-by">{{ app.flaggedBy }}</span>
-                <span class="flagged-at">{{ formatDate(app.flaggedAt) }}</span>
-                <div class="actions">
-                  <button
-                    @click="showDisqualifyModal(app)"
-                    class="btn btn-danger btn-small"
-                    :disabled="app.disqualified"
-                  >
-                    {{ app.disqualified ? "DISQUALIFIED" : "DISQUALIFY" }}
-                  </button>
-                  <button
-                    @click="removeApplicationFlag(app._id)"
-                    class="btn btn-warning btn-small"
-                    :disabled="app.disqualified"
-                  >
-                    REMOVE FLAG
-                  </button>
-                </div>
+                <label :for="`weight-${criterion.name}`"
+                  >{{ criterion.name }}:</label
+                >
+                <input
+                  :id="`weight-${criterion.name}`"
+                  v-model.number="weights[criterion.name]"
+                  type="number"
+                  :placeholder="`0`"
+                  class="weight-input"
+                  min="0"
+                  step="0.1"
+                />
               </div>
             </div>
-          </div>
 
-          <div v-else-if="flaggedApplicationsLoaded" class="empty-state">
-            No flagged applications found.
-          </div>
-
-          <!-- Disqualified Applications Table -->
-          <div
-            v-if="disqualifiedApplications.length > 0"
-            class="disqualified-table-container"
-          >
-            <h3>Disqualified Applications</h3>
-            <div class="disqualified-table">
-              <div class="table-header">
-                <span class="applicant-id">Applicant ID</span>
-                <span class="disqualification-reason"
-                  >Disqualification Reason</span
-                >
-                <span class="disqualified-by">Disqualified By</span>
-                <span class="disqualified-at">Disqualified At</span>
-              </div>
-              <div
-                v-for="app in disqualifiedApplications"
-                :key="app._id"
-                class="table-row"
+            <div class="export-buttons">
+              <button
+                @click="calculateWeightedAverages"
+                class="btn btn-primary"
               >
-                <span class="applicant-id">{{ app.applicantID }}</span>
-                <span class="disqualification-reason">{{
-                  app.disqualificationReason
-                }}</span>
-                <span class="disqualified-by">{{ app.disqualifiedBy }}</span>
-                <span class="disqualified-at">{{
-                  formatDate(app.disqualifiedAt)
-                }}</span>
+                CALCULATE AVERAGES
+              </button>
+              <button
+                @click="exportToCSV"
+                class="btn btn-export"
+                :disabled="!weightedAverages.length"
+              >
+                EXPORT CSV
+              </button>
+            </div>
+
+            <!-- Display Results -->
+            <div v-if="weightedAverages.length > 0" class="results-container">
+              <h4>Calculated Averages</h4>
+              <div class="results-list">
+                <div
+                  v-for="(result, index) in weightedAverages"
+                  :key="index"
+                  class="result-item"
+                >
+                  <span class="result-app">{{ result.applicantID }}:</span>
+                  <span class="result-score">{{
+                    result.weightedAverage.toFixed(2)
+                  }}</span>
+                  <span class="result-reviews"
+                    >({{ result.numReviews }} reviews)</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -1439,6 +1500,7 @@ const loadFlaggedApplications = async () => {
     const flagged = await api.applications.getFlaggedApplications(
       currentEventId.value
     );
+    console.log("Flagged applications response:", flagged);
     flaggedApplications.value = flagged;
     flaggedApplicationsLoaded.value = true;
 
@@ -1446,6 +1508,7 @@ const loadFlaggedApplications = async () => {
     const disqualified = await api.applications.getDisqualifiedApplications(
       currentEventId.value
     );
+    console.log("Disqualified applications response:", disqualified);
     disqualifiedApplications.value = disqualified;
   } catch (err) {
     console.error("Failed to load flagged applications:", err);
@@ -1691,17 +1754,38 @@ onMounted(async () => {
 }
 
 .config-sections {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
+  column-count: 2;
+  column-gap: 2rem;
+  column-fill: balance;
+  column-rule: none;
+  padding-top: 0;
 }
 
-.config-section {
+.config-section,
+.reviews-section,
+.csv-import-section,
+.flagged-applications-section,
+.eligibility-section {
   background: var(--bg-primary);
   border-radius: var(--radius-xl);
-  padding: 2rem;
   box-shadow: var(--shadow-lg);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
   border: 1px solid var(--border-light);
+  height: fit-content;
+  break-inside: avoid;
+  display: inline-block;
+  width: 100%;
+  vertical-align: top;
+  margin-top: 0;
+}
+
+.config-section:first-child,
+.reviews-section:first-child,
+.csv-import-section:first-child,
+.flagged-applications-section:first-child,
+.eligibility-section:first-child {
+  margin-top: 0;
 }
 
 .config-section h2 {
@@ -1978,7 +2062,6 @@ onMounted(async () => {
   box-shadow: var(--shadow-md);
   padding: 2rem;
   border: 1px solid var(--border-light);
-  margin-top: 2rem;
 }
 
 .eligibility-section h2 {
@@ -2059,7 +2142,6 @@ onMounted(async () => {
   box-shadow: var(--shadow-md);
   padding: 2rem;
   border: 1px solid var(--border-light);
-  margin-top: 2rem;
 }
 
 .reviews-section h2 {
@@ -2251,6 +2333,7 @@ onMounted(async () => {
   display: flex;
   gap: 1rem;
   margin-bottom: 1.5rem;
+  align-items: stretch;
 }
 
 .search-input {
@@ -2271,7 +2354,15 @@ onMounted(async () => {
 .btn-search {
   background: var(--accent-primary);
   color: white;
-  padding: 0.75rem 2rem;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  height: fit-content;
+  align-self: stretch;
 }
 
 .btn-search:hover {
@@ -2505,7 +2596,6 @@ onMounted(async () => {
   box-shadow: var(--shadow-md);
   padding: 2rem;
   border: 1px solid var(--border-light);
-  margin-top: 2rem;
 }
 
 .csv-import-section h2 {
@@ -2701,7 +2791,6 @@ onMounted(async () => {
   box-shadow: var(--shadow-md);
   padding: 2rem;
   border: 1px solid var(--border-light);
-  margin-top: 2rem;
 }
 
 .flagged-applications-section h2 {

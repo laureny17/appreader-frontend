@@ -18,10 +18,19 @@ export interface AIComment {
   justification: string;
 }
 
+export interface CurrentAssignment {
+  _id: string;
+  user: string;
+  application: string;
+  startTime: string;
+  event: string;
+}
+
 export const useApplicationsStore = defineStore("applications", () => {
   const applications = ref<Application[]>([]);
   const currentApplication = ref<Application | null>(null);
   const currentApplicationComments = ref<AIComment[]>([]);
+  const currentAssignment = ref<CurrentAssignment | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
 
@@ -31,6 +40,12 @@ export const useApplicationsStore = defineStore("applications", () => {
 
   const clearError = () => {
     error.value = null;
+  };
+
+  const clearCurrentApplication = () => {
+    currentApplication.value = null;
+    currentApplicationComments.value = [];
+    currentAssignment.value = null;
   };
 
   const loadApplicationsForEvent = async (eventId: string) => {
@@ -130,20 +145,75 @@ export const useApplicationsStore = defineStore("applications", () => {
     return applications.value[prevIndex];
   };
 
+  const getNextAssignment = async (userId: string, eventId: string) => {
+    isLoading.value = true;
+    error.value = null;
+
+    try {
+      const response = await api.applications.getNextApplication(
+        userId,
+        eventId
+      );
+      currentAssignment.value = response.assignment;
+
+      // Load the assigned application
+      const app = await api.applicationStorage.getApplication(
+        response.assignment.application
+      );
+      console.log("Fetched application data:", app);
+      if (app) {
+        // Handle both array and object responses
+        const applicationData = Array.isArray(app) ? app[0] : app;
+        console.log("Setting currentApplication to:", applicationData);
+        currentApplication.value = applicationData;
+        console.log(
+          "Current application after setting:",
+          currentApplication.value
+        );
+
+        // Load AI comments
+        try {
+          const comments =
+            await api.applicationStorage.getAICommentsByApplication(
+              applicationData._id
+            );
+          currentApplicationComments.value = comments;
+        } catch (commentErr) {
+          console.warn("Could not load AI comments:", commentErr);
+          currentApplicationComments.value = [];
+        }
+      } else {
+        console.error("No application data returned from API");
+      }
+
+      return response.assignment;
+    } catch (err) {
+      const errorMessage =
+        err instanceof ApiError ? err.message : "Failed to get next assignment";
+      setError(errorMessage);
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
   return {
     // State
     applications: readonly(applications),
     currentApplication: readonly(currentApplication),
     currentApplicationComments: readonly(currentApplicationComments),
+    currentAssignment: readonly(currentAssignment),
     isLoading: readonly(isLoading),
     error: readonly(error),
 
     // Actions
     setError,
     clearError,
+    clearCurrentApplication,
     loadApplicationsForEvent,
     loadApplication,
     getNextApplication,
     getPreviousApplication,
+    getNextAssignment,
   };
 });
