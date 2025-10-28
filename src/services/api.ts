@@ -60,8 +60,21 @@ async function apiRequest<T = any>(
     const data = await response.json();
     console.log("API Response data:", data);
 
-    // Handle null or undefined response
+    // Handle null response - some endpoints legitimately return null
     if (data === null || data === undefined) {
+      // Return null for certain endpoints that can legitimately return null
+      const nullAllowedEndpoints = [
+        "/AuthAccounts/_getAccountByUserId",
+        "/AuthAccounts/_getNameByUserId",
+        "/ApplicationAssignments/getCurrentAssignment",
+      ];
+      if (
+        nullAllowedEndpoints.some((allowedEndpoint) =>
+          url.includes(allowedEndpoint)
+        )
+      ) {
+        return null as T;
+      }
       throw new ApiError("Server returned null response");
     }
 
@@ -98,9 +111,12 @@ export const api = {
       }),
 
     getAccountByUserId: (userId: string) =>
-      apiRequest<
-        [{ _id: string; email: string; name: string; passwordHash: string }]
-      >("/AuthAccounts/_getAccountByUserId", {
+      apiRequest<{
+        _id: string;
+        email: string;
+        name: string;
+        passwordHash: string;
+      } | null>("/AuthAccounts/_getAccountByUserId", {
         method: "POST",
         body: JSON.stringify({ userId }),
       }),
@@ -114,7 +130,28 @@ export const api = {
       }),
 
     getNameByUserId: (userId: string) =>
-      apiRequest<{ name: string }>("/AuthAccounts/_getNameByUserId", {
+      apiRequest<string>("/AuthAccounts/_getNameByUserId", {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      }),
+
+    getAllUsers: (caller: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          name: string;
+          email: string;
+        }>
+      >("/AuthAccounts/_getAllUsers", {
+        method: "POST",
+        body: JSON.stringify({ caller }),
+      }),
+
+    getAccountByIdSafe: (userId: string) =>
+      apiRequest<{
+        name: string;
+        email: string;
+      }>("/AuthAccounts/_getAccountByIdSafe", {
         method: "POST",
         body: JSON.stringify({ userId }),
       }),
@@ -235,6 +272,75 @@ export const api = {
           body: JSON.stringify({ item }),
         }
       ),
+
+    getReviewsWithScoresByApplication: (application: string) =>
+      apiRequest<
+        Array<{
+          review: string;
+          author: string;
+          submittedAt: string;
+          scores: Array<{
+            criterion: string;
+            value: number;
+          }>;
+        }>
+      >("/ReviewRecords/_getReviewsWithScoresByApplication", {
+        method: "POST",
+        body: JSON.stringify({ application }),
+      }),
+
+    calculateWeightedAverages: (weights: Record<string, number>) =>
+      apiRequest<
+        Array<{
+          application: string;
+          weightedAverage: number;
+          numReviews: number;
+        }>
+      >("/ReviewRecords/_calculateWeightedAverages", {
+        method: "POST",
+        body: JSON.stringify({ weights }),
+      }),
+
+    addComment: (
+      author: string,
+      application: string,
+      text: string,
+      quotedSnippet: string
+    ) =>
+      apiRequest<{ comment: string }>("/ReviewRecords/addComment", {
+        method: "POST",
+        body: JSON.stringify({ author, application, text, quotedSnippet }),
+      }),
+
+    getCommentsByApplication: (application: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          author: string;
+          text: string;
+          quotedSnippet: string;
+          timestamp: string;
+        }>
+      >("/ReviewRecords/_getCommentsByApplication", {
+        method: "POST",
+        body: JSON.stringify({ application }),
+      }),
+
+    getUserReviewedApplications: (user: string, event: string) =>
+      apiRequest<
+        Array<{
+          application: string;
+          submittedAt: string;
+          applicationDetails?: {
+            _id: string;
+            applicantID: string;
+            applicantYear: string;
+          };
+        }>
+      >("/ReviewRecords/_getUserReviewedApplications", {
+        method: "POST",
+        body: JSON.stringify({ user, event }),
+      }),
   },
 
   // Event Directory endpoints
@@ -248,11 +354,22 @@ export const api = {
         description: string;
         scaleMin: number;
         scaleMax: number;
-      }>
+      }>,
+      endDate?: Date | string,
+      eligibilityCriteria?: string[],
+      questions?: string[]
     ) =>
       apiRequest<{ event: string }>("/EventDirectory/createEvent", {
         method: "POST",
-        body: JSON.stringify({ caller, name, requiredReadsPerApp, rubric }),
+        body: JSON.stringify({
+          caller,
+          name,
+          requiredReadsPerApp,
+          rubric,
+          ...(endDate && { endDate }),
+          ...(eligibilityCriteria && { eligibilityCriteria }),
+          ...(questions && { questions }),
+        }),
       }),
 
     activateEvent: (caller: string, name: string) =>
@@ -375,6 +492,24 @@ export const api = {
           body: JSON.stringify({ event: eventId }),
         }
       ),
+
+    getVerifiedReadersForEvent: (eventId: string) =>
+      apiRequest<Array<{ user: string }>>(
+        "/EventDirectory/_getVerifiedReadersForEvent",
+        {
+          method: "POST",
+          body: JSON.stringify({ event: eventId }),
+        }
+      ),
+
+    getAllMembersForEvent: (eventId: string) =>
+      apiRequest<Array<{ user: string; name: string; verified: boolean }>>(
+        "/EventDirectory/_getAllMembersForEvent",
+        {
+          method: "POST",
+          body: JSON.stringify({ event: eventId }),
+        }
+      ),
   },
 
   // Application Storage endpoints
@@ -486,8 +621,9 @@ export const api = {
         body: JSON.stringify({ user: userId }),
       }),
 
-    getAllEvents: () =>
-      apiRequest<
+    getAllEvents: (caller: string) => {
+      console.log("Calling getAllEvents API with caller:", caller);
+      return apiRequest<
         Array<{
           _id: string;
           name: string;
@@ -505,8 +641,9 @@ export const api = {
         }>
       >("/EventDirectory/getAllEvents", {
         method: "POST",
-        body: JSON.stringify({}),
-      }),
+        body: JSON.stringify({ caller }),
+      });
+    },
   },
 
   // Application endpoints
@@ -566,13 +703,32 @@ export const api = {
         body: JSON.stringify({ user, assignment }),
       }),
 
-    submitAndIncrement: (user: string, assignment: any, endTime: string) =>
+    submitAndIncrement: (
+      user: string,
+      assignment: any,
+      endTime: string,
+      activeTimeSeconds?: number
+    ) =>
       apiRequest<{ application: string }>(
         "/ApplicationAssignments/submitAndIncrement",
         {
           method: "POST",
-          body: JSON.stringify({ user, assignment, endTime }),
+          body: JSON.stringify({
+            user,
+            assignment,
+            endTime,
+            activeTimeSeconds: activeTimeSeconds || 0,
+          }),
         }
       ),
+
+    getUserReviewProgress: (user: string, event: string) =>
+      apiRequest<{
+        reviewsCompleted: number;
+        totalNeeded: number;
+      }>("/ReviewRecords/_getUserReviewProgress", {
+        method: "POST",
+        body: JSON.stringify({ user, event }),
+      }),
   },
 };

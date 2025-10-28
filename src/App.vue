@@ -122,10 +122,11 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
 }
 
 .nav-brand h1 {
+  font-family: "Kufam", sans-serif;
   color: var(--text-primary);
   margin: 0;
   font-size: 1.8rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
@@ -144,8 +145,8 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.9rem;
+  font-weight: 500;
+  font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -161,7 +162,7 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
 }
 
 .toggle-btn.active:hover {
-  background: #2563eb;
+  background: var(--accent-secondary);
 }
 
 .nav-links {
@@ -174,10 +175,11 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
   text-decoration: none;
   padding: 0.75rem 1.25rem;
   transition: all 0.2s ease;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 0.9rem;
   letter-spacing: 0.025em;
   position: relative;
+  border-radius: var(--radius-sm);
 }
 
 .nav-link:hover {
@@ -200,6 +202,7 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
   height: 2px;
   background: var(--accent-primary);
   border-radius: 1px;
+  transition: background 0.2s ease;
 }
 
 .logout-btn {
@@ -211,7 +214,7 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
   padding: 0.75rem 1rem;
   border-radius: var(--radius-md);
   transition: all 0.2s ease;
-  font-weight: 600;
+  font-weight: 500;
   min-width: 80px;
   height: 44px;
   display: flex;
@@ -220,8 +223,9 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
 }
 
 .logout-btn:hover {
-  background: #dc2626;
+  background: #ff5432;
   transform: translateY(-1px);
+  color: white !important;
 }
 
 .main-content {
@@ -237,28 +241,31 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
 </style>
 
 <style>
+@import url("https://fonts.googleapis.com/css2?family=Kufam:wght@400;500;600;700;800&family=Nunito:wght@300;400;500;600;700;800&display=swap");
+
 :root {
-  /* Centralized Color Scheme */
+  /* Custom Color Scheme from Image */
   --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --bg-tertiary: #f1f5f9;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --text-muted: #94a3b8;
-  --accent-primary: #3b82f6;
-  --accent-secondary: #6366f1;
-  --accent-danger: #ef4444;
-  --accent-success: #10b981;
-  --accent-warning: #f59e0b;
-  --border-light: #e2e8f0;
-  --border-medium: #cbd5e1;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --bg-secondary: #faf8f3; /* slightly lighter beige */
+  --bg-tertiary: #f5f0e6;
+  --text-primary: #211c1b; /* off-black-brown */
+  --text-secondary: #4a4442;
+  --text-muted: #7a7472;
+  --accent-primary: #6f90d1; /* blue */
+  --accent-secondary: #9fbddd; /* light blue */
+  --accent-danger: #ff6742; /* reddish-orange for flag */
+  --accent-success: #8bbd59;
+  --accent-warning: #fcb05a; /* orange for skip */
+  --accent-info: #819ad2;
+  --border-light: #e8e2d8;
+  --border-medium: #ddd6cb;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --shadow-md: 0 2px 4px -1px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 4px 8px -2px rgb(0 0 0 / 0.08);
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
 }
 
 * {
@@ -268,8 +275,7 @@ const handleViewModeSwitch = (mode: "admin" | "reader") => {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+  font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -277,6 +283,98 @@ body {
   margin: 0;
   padding: 0;
   color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Kufam", sans-serif;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+/* Global Button Styles - Notion-inspired */
+button.btn,
+a.btn,
+input[type="submit"].btn {
+  font-family: "Nunito", sans-serif;
+  padding: 0.65rem 1.5rem;
+  border-radius: var(--radius-md);
+  border: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--accent-secondary);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: var(--accent-secondary);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: var(--accent-primary);
+  transform: translateY(-1px);
+}
+
+.btn-warning {
+  background: var(--accent-warning);
+  color: var(--text-primary);
+}
+
+.btn-warning:hover {
+  background: #fba747;
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  background: var(--accent-danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #ff5432;
+  transform: translateY(-1px);
+}
+
+.btn-success {
+  background: var(--accent-success);
+  color: white;
+}
+
+.btn-success:hover {
+  background: #7fc680;
+  transform: translateY(-1px);
+}
+
+.btn-neutral {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
+}
+
+.btn-neutral:hover {
+  background: var(--border-medium);
 }
 
 #app {

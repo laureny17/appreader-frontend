@@ -88,14 +88,12 @@
 }
 
 **Success Response Body (Query):**
-[
 {
-"_id": "ID",
+"\_id": "ID",
 "email": "string",
 "name": "string",
 "passwordHash": "string"
-}
-]
+} | null
 
 **Error Response Body:**
 {
@@ -122,12 +120,100 @@
 }
 
 **Success Response Body (Query):**
-[
 {
-"_id": "ID",
+"\_id": "ID",
 "email": "string",
 "name": "string",
 "passwordHash": "string"
+} | null
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/AuthAccounts/\_getNameByUserId
+
+**Description:** Retrieves the name for a given user ID (without sensitive data).
+
+**Requirements:**
+
+- The user ID exists.
+
+**Effects:**
+
+- Returns the name of the user.
+
+**Request Body:**
+{
+"userId": "ID"
+}
+
+**Success Response Body (Query):**
+"string" | null
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/AuthAccounts/\_getAccountByIdSafe
+
+**Description:** Retrieves account details without password hash for a given user ID.
+
+**Requirements:**
+
+- The user ID exists.
+
+**Effects:**
+
+- Returns the account details without password hash.
+
+**Request Body:**
+{
+"userId": "ID"
+}
+
+**Success Response Body (Query):**
+{
+"name": "string",
+"email": "string"
+} | null
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/AuthAccounts/\_getAllUsers
+
+**Description:** Retrieves all users in the system (for admin use).
+
+**Requirements:**
+
+- Caller is an admin.
+
+**Effects:**
+
+- Returns all user accounts with their details (without password hash).
+
+**Request Body:**
+{
+"caller": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"\_id": "ID",
+"name": "string",
+"email": "string"
 }
 ]
 
@@ -176,16 +262,18 @@
 
 ### POST /api/ApplicationAssignments/getNextAssignment
 
-**Description:** Assigns the next eligible application to a user for review.
+**Description:** Assigns the next eligible application to a user for review. Automatically expires assignments older than 12 hours.
 
 **Requirements:**
 
-- The user has no current assignment for this event.
+- The user has no current assignment for this event, or their current assignment is older than 12 hours.
 
 **Effects:**
 
-- Selects an application the user has not read/skipped and that has the fewest reads so far.
-- Creates a new `CurrentAssignment` record.
+- If the user has an assignment older than 12 hours, it is deleted.
+- If the user has a valid current assignment, it is returned.
+- Otherwise, selects an application the user has not read/skipped and that has the fewest reads so far.
+- Creates a new `CurrentAssignment` record (if no valid assignment existed).
 
 **Request Body:**
 {
@@ -278,6 +366,71 @@
 **Success Response Body (Action):**
 {
 "application": "ID"
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationAssignments/abandonAssignment
+
+**Description:** Allows a user to abandon their current assignment and mark it as incomplete.
+
+**Requirements:**
+
+- The user has an active assignment for this event.
+
+**Effects:**
+
+- Deletes the user's current assignment from the database without incrementing reads or adding to readers.
+
+**Request Body:**
+{
+"user": "ID",
+"event": "ID"
+}
+
+**Success Response Body (Action):**
+{}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ApplicationAssignments/getCurrentAssignment
+
+**Description:** Returns the user's current active assignment for an event, if one exists. Automatically expires assignments older than 12 hours.
+
+**Requirements:**
+
+- None.
+
+**Effects:**
+
+- Returns the current assignment if it exists and is not older than 12 hours.
+- Returns null if no assignment exists or the assignment has expired.
+
+**Request Body:**
+{
+"user": "ID",
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+{
+"assignment": {
+"\_id": "ID",
+"user": "ID",
+"application": "ID",
+"startTime": "Date",
+"event": "ID"
+} | null
 }
 
 **Error Response Body:**
@@ -431,6 +584,41 @@
 
 ---
 
+### POST /api/ApplicationStorage/\_getApplicationsByEvent
+
+**Description:** Retrieves all applications for a specific event.
+
+**Requirements:**
+
+- Event exists.
+
+**Effects:**
+
+- Returns all application documents for the event.
+
+**Request Body:**
+{
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"\_id": "ID",
+"event": "ID",
+"applicantID": "string",
+"applicantYear": "string",
+"answers": ["string"]
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
 # API Specification: EventDirectory Concept
 
 **Purpose:** Manage events, admins, and reader memberships with configuration and verification controls.
@@ -462,7 +650,8 @@
 "name": "string",
 "description": "string",
 "scaleMin": "number",
-"scaleMax": "number"
+"scaleMax": "number",
+"guidelines": ["string (optional)"]
 }
 ],
 "endDate": "Date (optional)"
@@ -561,7 +750,8 @@
 "name": "string",
 "description": "string",
 "scaleMin": "number",
-"scaleMax": "number"
+"scaleMax": "number",
+"guidelines": ["string (optional)"]
 }
 ],
 "eligibilityCriteria": ["string"],
@@ -714,7 +904,6 @@
 }
 
 **Success Response Body (Query):**
-[
 {
 "\_id": "ID",
 "name": "string",
@@ -725,13 +914,14 @@
 "name": "string",
 "description": "string",
 "scaleMin": "number",
-"scaleMax": "number"
+"scaleMax": "number",
+"guidelines": ["string (optional)"]
 }
 ],
 "eligibilityCriteria": ["string"],
-"endDate": "Date (optional)"
-}
-]
+"questions": ["string"],
+"endDate": "Date"
+} | null
 
 **Error Response Body:**
 {
@@ -758,7 +948,6 @@
 }
 
 **Success Response Body (Query):**
-[
 {
 "\_id": "ID",
 "name": "string",
@@ -769,13 +958,14 @@
 "name": "string",
 "description": "string",
 "scaleMin": "number",
-"scaleMax": "number"
+"scaleMax": "number",
+"guidelines": ["string (optional)"]
 }
 ],
 "eligibilityCriteria": ["string"],
-"endDate": "Date (optional)"
-}
-]
+"questions": ["string"],
+"endDate": "Date"
+} | null
 
 **Error Response Body:**
 {
@@ -833,14 +1023,12 @@
 }
 
 **Success Response Body (Query):**
-[
 {
 "\_id": "ID",
 "event": "ID",
 "user": "ID",
 "verified": true | false
-}
-]
+} | null
 
 **Error Response Body:**
 {
@@ -941,6 +1129,102 @@
 
 ---
 
+### POST /api/EventDirectory/\_getQuestionsForEvent
+
+**Description:** Retrieves the questions for a specific event.
+
+**Requirements:**
+
+- Event exists.
+
+**Effects:**
+
+- Returns the questions array for the event.
+
+**Request Body:**
+{
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+{
+"questions": ["string"]
+} | {
+"error": "string"
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/EventDirectory/\_getVerifiedReadersForEvent
+
+**Description:** Returns all verified readers for a specific event with their names.
+
+**Requirements:**
+
+- Event with the given ID exists.
+
+**Effects:**
+
+- Returns an array of verified members with their user IDs and names.
+
+**Request Body:**
+{
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"user": "ID",
+"name": "string"
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/EventDirectory/\_getAllMembersForEvent
+
+**Description:** Returns all members (both verified and unverified) for a specific event with their names.
+
+**Requirements:**
+
+- Event with the given ID exists.
+
+**Effects:**
+
+- Returns an array of all members with their user IDs, names, and verification status.
+
+**Request Body:**
+{
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"user": "ID",
+"name": "string",
+"verified": true | false
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
 ### POST /api/EventDirectory/getAllEvents
 
 **Description:** Retrieves all events in the system (admin only).
@@ -968,10 +1252,12 @@
 "name": "string",
 "description": "string",
 "scaleMin": "number",
-"scaleMax": "number"
+"scaleMax": "number",
+"guidelines": ["string (optional)"]
 }
 ],
 "eligibilityCriteria": ["string"],
+"questions": ["string"],
 "endDate": "Date"
 }
 ]
@@ -1007,7 +1293,8 @@
 {
 "author": "ID",
 "application": "ID",
-"currentTime": "Date"
+"currentTime": "Date",
+"activeTime": "number (optional)"
 }
 
 **Success Response Body (Action):**
@@ -1147,20 +1434,22 @@
 
 ### POST /api/ReviewRecords/addComment
 
-**Description:** Adds a comment to a review.
+**Description:** Adds a comment directly to an application.
 
 **Requirements:**
 
-- Both `text` and `quotedSnippet` are non-empty.
+- Application exists.
+- `text` is non-empty.
 
 **Effects:**
 
-- Creates a new Comment document.
+- Creates a new UserComment document linked to the application.
+- Returns the comment ID.
 
 **Request Body:**
 {
 "author": "ID",
-"review": "ID",
+"application": "ID",
 "text": "string",
 "quotedSnippet": "string"
 }
@@ -1183,7 +1472,7 @@
 
 **Requirements:**
 
-- Author is the comment’s author.
+- Author is the comment's author.
 - `newText` is non-empty.
 
 **Effects:**
@@ -1215,7 +1504,7 @@
 
 **Requirements:**
 
-- Author is the comment’s author.
+- Author is the comment's author.
 
 **Effects:**
 
@@ -1231,6 +1520,186 @@
 {
 "success": true
 }
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/\_getReviewsWithScoresByApplication
+
+**Description:** Retrieves all reviews and their scores for a specific application.
+
+**Requirements:**
+
+- Application exists.
+
+**Effects:**
+
+- Returns all reviews with their scores for the application.
+
+**Request Body:**
+{
+"application": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"review": "ID",
+"author": "ID",
+"submittedAt": "Date",
+"activeTime": "number",
+"scores": [
+{
+"criterion": "string",
+"value": "number"
+}
+]
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/\_calculateWeightedAverages
+
+**Description:** Calculates weighted average scores for all applications based on provided criterion weights.
+
+**Requirements:**
+
+- Total weight must be greater than zero.
+
+**Effects:**
+
+- Returns weighted averages for each application.
+
+**Request Body:**
+{
+"weights": {
+"criterion1": "number",
+"criterion2": "number"
+}
+}
+
+**Success Response Body (Query):**
+[
+{
+"application": "ID",
+"weightedAverage": "number",
+"numReviews": "number"
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/\_getUserReviewProgress
+
+**Description:** Retrieves review progress for a user in an event.
+
+**Requirements:**
+
+- Event exists.
+
+**Effects:**
+
+- Returns the number of reviews completed and total reviews needed for the user.
+
+**Request Body:**
+{
+"user": "ID",
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+{
+"reviewsCompleted": "number",
+"totalNeeded": "number"
+}
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/\_getCommentsByApplication
+
+**Description:** Retrieves all comments for a specific application.
+
+**Requirements:**
+
+- Application exists (or return empty array).
+
+**Effects:**
+
+- Returns all comments associated with this application, ordered by timestamp.
+
+**Request Body:**
+{
+"application": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"_id": "string",
+"author": "string (user ID)",
+"text": "string",
+"quotedSnippet": "string",
+"timestamp": "string (ISO date)"
+}
+]
+
+**Error Response Body:**
+{
+"error": "string"
+}
+
+---
+
+### POST /api/ReviewRecords/\_getUserReviewedApplications
+
+**Description:** Retrieves all applications a user has reviewed for a specific event.
+
+**Requirements:**
+
+- User and event IDs are valid.
+
+**Effects:**
+
+- Returns all applications the user has reviewed for this event with timestamps and application details.
+
+**Request Body:**
+{
+"user": "ID",
+"event": "ID"
+}
+
+**Success Response Body (Query):**
+[
+{
+"application": "ID",
+"submittedAt": "string (ISO timestamp)",
+"applicationDetails": {
+"_id": "string",
+"applicantID": "string",
+"applicantYear": "string"
+}
+}
+]
 
 **Error Response Body:**
 {
