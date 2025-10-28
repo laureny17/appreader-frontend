@@ -30,12 +30,6 @@
               <span class="stat-label"># SKIPS:</span>
               <span class="stat-value">{{ userSkipCount }}</span>
             </div>
-            <div class="stat-item">
-              <span class="stat-label">RATIO:</span>
-              <span class="stat-value">{{
-                getReadToSkipRatio(userReadCount, userSkipCount)
-              }}</span>
-            </div>
           </div>
 
           <div class="scatter-plot">
@@ -191,16 +185,28 @@ const createScatterChart = () => {
   const ctx = scatterChart.value.getContext("2d");
   if (!ctx) return;
 
-  // Prepare data
-  const chartData = readers.value.map((reader) => ({
-    x: reader.readCount,
-    y:
-      reader.skipCount > 0
-        ? reader.readCount / reader.skipCount
-        : reader.readCount,
-    label: reader.name,
-    userId: reader.userId,
-  }));
+  // Prepare data with error handling
+  const chartData = readers.value.map((reader) => {
+    let ratio;
+    if (reader.skipCount === 0) {
+      // For users with no skips, cap at the maximum ratio of other users
+      const maxRatio = Math.max(
+        ...readers.value
+          .filter((r) => r.skipCount > 0)
+          .map((r) => r.readCount / r.skipCount)
+      );
+      ratio = Math.max(reader.readCount, maxRatio || 10); // Default to 10 if no other ratios exist
+    } else {
+      ratio = reader.readCount / reader.skipCount;
+    }
+
+    return {
+      x: reader.readCount,
+      y: ratio,
+      label: reader.name,
+      userId: reader.userId,
+    };
+  });
 
   // Separate current user from others
   const currentUserData = chartData.filter(
@@ -251,7 +257,7 @@ const createScatterChart = () => {
               const point = context.raw as any;
               return [
                 `Apps Read: ${point.x}`,
-                `Avg Time: ${Math.round(point.y)}s`,
+                `Read/Skip Ratio: ${point.y.toFixed(1)}`,
               ];
             },
           },
@@ -398,6 +404,21 @@ watch(
     }
   },
   { immediate: false }
+);
+
+// Watch for route changes to refresh stats when returning to Home
+watch(
+  () => router.currentRoute.value.path,
+  async (newPath, oldPath) => {
+    if (newPath === "/home" && oldPath && oldPath !== "/home") {
+      console.log("Returned to Home page, refreshing reader stats...");
+      try {
+        await loadReaderStats();
+      } catch (err) {
+        console.error("Error refreshing reader stats:", err);
+      }
+    }
+  }
 );
 
 onMounted(async () => {

@@ -86,30 +86,35 @@
         <!-- Event Settings Section -->
         <div class="config-section">
           <h2>EVENT SETTINGS</h2>
-          <div class="settings-grid">
-            <div class="setting-item">
-              <label for="endDate">Reading Deadline *</label>
-              <input
-                type="datetime-local"
-                id="endDate"
-                v-model="eventEndDate"
-                class="form-input"
-                required
-              />
+          <div class="settings-container">
+            <div class="setting-group">
+              <h3 class="setting-title">Reading Deadline</h3>
+              <div class="input-wrapper">
+                <input
+                  type="datetime-local"
+                  id="endDate"
+                  v-model="eventEndDate"
+                  class="styled-input"
+                  required
+                />
+              </div>
               <p class="setting-description">
-                Set when the reading period ends. This is required.
+                Set when the reading period ends.
               </p>
             </div>
-            <div class="setting-item">
-              <label for="requiredReads">Required Reads Per App</label>
-              <input
-                type="number"
-                id="requiredReads"
-                v-model.number="requiredReadsPerApp"
-                min="1"
-                max="10"
-                class="form-input"
-              />
+
+            <div class="setting-group">
+              <h3 class="setting-title">Required Reads Per App</h3>
+              <div class="input-wrapper">
+                <input
+                  type="number"
+                  id="requiredReads"
+                  v-model.number="requiredReadsPerApp"
+                  min="1"
+                  max="10"
+                  class="styled-input"
+                />
+              </div>
               <p class="setting-description">
                 How many readers must review each application.
               </p>
@@ -118,11 +123,16 @@
           <div class="settings-actions">
             <button
               @click="saveEventSettings"
-              :disabled="savingSettings"
+              :disabled="savingSettings || !isValidSettings"
               class="btn btn-primary"
+              :class="{ 'btn-disabled': !isValidSettings }"
             >
               {{ savingSettings ? "Saving..." : "Save Settings" }}
             </button>
+            <p v-if="!isValidSettings" class="validation-message">
+              Please enter a valid positive integer for required reads per
+              application.
+            </p>
           </div>
         </div>
 
@@ -306,10 +316,8 @@
                 :key="app._id"
                 class="table-row"
               >
-                <div class="table-data">
-                  <span class="applicant-id">{{ app.applicantID }}</span>
-                  <span class="flagged-by">{{ app.flaggedByName }}</span>
-                </div>
+                <span class="applicant-id">{{ app.applicantID }}</span>
+                <span class="flagged-by">{{ app.flaggedByName }}</span>
                 <div class="actions">
                   <button
                     @click="viewFlaggedApplication(app._id)"
@@ -349,9 +357,7 @@
             <div class="disqualified-table">
               <div class="table-header">
                 <span class="applicant-id">Applicant ID</span>
-                <span class="disqualification-reason"
-                  >Disqualification Reason</span
-                >
+                <span class="disqualification-reason">Reason</span>
                 <span class="disqualified-by">Disqualified By</span>
               </div>
               <div
@@ -359,18 +365,16 @@
                 :key="app._id"
                 class="table-row"
               >
-                <div class="table-data">
-                  <span class="applicant-id">{{ app.applicantID }}</span>
-                  <span class="disqualification-reason">{{
-                    app.disqualificationReason
-                  }}</span>
-                  <span class="disqualified-by">{{
-                    app.disqualifiedByName
-                  }}</span>
-                </div>
+                <span class="applicant-id">{{ app.applicantID }}</span>
+                <span class="disqualification-reason">{{
+                  app.disqualificationReason
+                }}</span>
+                <span class="disqualified-by">{{
+                  app.disqualifiedByName
+                }}</span>
                 <div class="actions">
                   <button
-                    @click="viewDisqualifiedApplication(app._id)"
+                    @click="viewFlaggedApplication(app._id)"
                     class="btn btn-secondary btn-small"
                   >
                     VIEW
@@ -667,15 +671,6 @@
                 <span class="review-date">{{
                   new Date(review.submittedAt).toLocaleDateString()
                 }}</span>
-                <span
-                  v-if="
-                    review.activeTime !== undefined &&
-                    review.activeTime !== null
-                  "
-                  class="review-time"
-                >
-                  Time: {{ formatTime(review.activeTime || 0) }}
-                </span>
               </div>
             </div>
             <div class="review-scores">
@@ -714,6 +709,9 @@ const authStore = useAuthStore();
 const eventsStore = useEventsStore();
 
 const eventName = ref("HackMIT 2025");
+const eventEndDate = ref("");
+const requiredReadsPerApp = ref<number>(3);
+const savingSettings = ref(false);
 const expandedCriterion = ref(0);
 const currentEventId = ref<string | null>(null);
 const currentEventRubric = ref<
@@ -783,6 +781,7 @@ const flaggedApplications = ref<
     flaggedBy: string;
     flaggedAt: string;
     flagReason: string;
+    flaggedByName: string;
     disqualified: boolean;
     disqualificationReason?: string;
     disqualifiedAt?: string;
@@ -794,9 +793,12 @@ const disqualifiedApplications = ref<
   Array<{
     _id: string;
     applicantID: string;
+    applicantYear: string;
+    answers: string[];
     disqualificationReason: string;
     disqualifiedAt: string;
     disqualifiedBy: string;
+    disqualifiedByName: string;
   }>
 >([]);
 
@@ -1068,6 +1070,14 @@ const filteredUnverifiedUsers = computed(() => {
   );
 });
 
+const isValidSettings = computed(() => {
+  return (
+    requiredReadsPerApp.value > 0 &&
+    Number.isInteger(requiredReadsPerApp.value) &&
+    eventEndDate.value !== ""
+  );
+});
+
 const addEligibilityCriterion = () => {
   eligibilityCriteria.value.push("");
 };
@@ -1115,6 +1125,55 @@ const formatTime = (seconds: number): string => {
 };
 
 // New functions for reviews and scoring
+const viewFlaggedApplication = async (applicationId: string) => {
+  console.log("Viewing flagged application:", applicationId);
+  applicantReviews.value = [];
+  searchedApplication.value = null;
+
+  try {
+    // Find the application in flagged applications first, then disqualified
+    let app = flaggedApplications.value.find((a) => a._id === applicationId);
+
+    if (!app) {
+      app = disqualifiedApplications.value.find((a) => a._id === applicationId);
+    }
+
+    if (!app) {
+      alert(
+        "Application not found in flagged or disqualified applications list."
+      );
+      return;
+    }
+
+    console.log("Found flagged application:", app);
+    searchedApplication.value = app;
+
+    // Load reviews for this application
+    const reviews = await api.reviewRecords.getReviewsWithScoresByApplication(
+      applicationId
+    );
+
+    console.log("Reviews for flagged application:", reviews);
+
+    // Get reviewer names for each review
+    const reviewsWithDetails = reviews.map((review) => {
+      return {
+        ...review,
+        reviewerName: review.reviewerName || "Unknown Reviewer",
+      };
+    });
+
+    applicantReviews.value = reviewsWithDetails;
+    console.log("Reviews with details:", applicantReviews.value);
+
+    // Skip weighted averages calculation for flagged applications
+    // since we're just viewing reviews, not calculating overall scores
+  } catch (err) {
+    console.error("Failed to load flagged application details:", err);
+    alert("Failed to load application details. Please try again.");
+  }
+};
+
 const searchApplicant = async () => {
   if (!searchApplicantID.value.trim()) return;
 
@@ -1196,7 +1255,6 @@ const searchApplicant = async () => {
         ...review,
         authorName: authorInfo?.name || review.author,
         authorEmail: authorInfo?.email || "unknown",
-        activeTime: (review as any).activeTime || 0, // Include active time if available
       };
     });
 
@@ -1497,19 +1555,89 @@ const loadFlaggedApplications = async () => {
   if (!currentEventId.value || !authStore.user) return;
 
   try {
-    const flagged = await api.applications.getFlaggedApplications(
+    const flagged = await api.applicationStorage.getFlaggedApplications(
       currentEventId.value
     );
     console.log("Flagged applications response:", flagged);
-    flaggedApplications.value = flagged;
-    flaggedApplicationsLoaded.value = true;
+    console.log("Number of flagged applications:", flagged.length);
+
+    // Fetch user names for flagged applications
+    const flaggedWithNames = await Promise.all(
+      flagged.map(async (app) => {
+        try {
+          const userName = await api.auth.getNameByUserId(app.flaggedBy);
+          return {
+            ...app,
+            flaggedByName: userName || "Unknown User",
+            disqualified: false, // Default to not disqualified
+            flagReason: app.flagReason || "No reason provided",
+          };
+        } catch (err) {
+          console.error(
+            "Failed to get user name for flaggedBy:",
+            app.flaggedBy
+          );
+          return {
+            ...app,
+            flaggedByName: "Unknown User",
+            disqualified: false,
+            flagReason: app.flagReason || "No reason provided",
+          };
+        }
+      })
+    );
+
+    // Don't set flaggedApplications.value here - we'll filter it later
 
     // Also load disqualified applications
-    const disqualified = await api.applications.getDisqualifiedApplications(
-      currentEventId.value
-    );
+    const disqualified =
+      await api.applicationStorage.getDisqualifiedApplications(
+        currentEventId.value
+      );
     console.log("Disqualified applications response:", disqualified);
-    disqualifiedApplications.value = disqualified;
+
+    // Fetch user names for disqualified applications
+    const disqualifiedWithNames = await Promise.all(
+      disqualified.map(async (app) => {
+        try {
+          const userName = await api.auth.getNameByUserId(app.disqualifiedBy);
+          return {
+            ...app,
+            disqualifiedByName: userName || "Unknown User",
+            disqualificationReason:
+              app.disqualificationReason || "No reason provided",
+          };
+        } catch (err) {
+          console.error(
+            "Failed to get user name for disqualifiedBy:",
+            app.disqualifiedBy
+          );
+          return {
+            ...app,
+            disqualifiedByName: "Unknown User",
+            disqualificationReason:
+              app.disqualificationReason || "No reason provided",
+          };
+        }
+      })
+    );
+
+    disqualifiedApplications.value = disqualifiedWithNames;
+
+    // Filter out flagged applications that are also disqualified
+    const disqualifiedIds = new Set(
+      disqualifiedWithNames.map((app) => app._id)
+    );
+    const filteredFlagged = flaggedWithNames.filter(
+      (app) => !disqualifiedIds.has(app._id)
+    );
+
+    console.log(
+      "Filtered flagged applications (excluding disqualified):",
+      filteredFlagged.length
+    );
+    flaggedApplications.value = filteredFlagged;
+    flaggedApplicationsLoaded.value = true;
   } catch (err) {
     console.error("Failed to load flagged applications:", err);
     alert("Failed to load flagged applications. Please try again.");
@@ -1532,17 +1660,49 @@ const closeDisqualifyModal = () => {
   disqualificationReason.value = "";
 };
 
+const undisqualifyApplication = async (applicationId: string) => {
+  if (!authStore.user) return;
+
+  const confirmed = confirm(
+    "Are you sure you want to un-disqualify this application? It will return to the flagged applications list."
+  );
+  if (!confirmed) return;
+
+  try {
+    await api.applicationStorage.undisqualifyApplication(
+      applicationId,
+      authStore.user.id,
+      "Un-disqualified by admin"
+    );
+
+    // Reload both tables to update the UI
+    await loadFlaggedApplications();
+
+    alert("Application un-disqualified successfully!");
+  } catch (err) {
+    console.error("Failed to un-disqualify application:", err);
+    alert("Failed to un-disqualify application. Please try again.");
+  }
+};
+
 const confirmDisqualify = async () => {
   if (!disqualifyModal.value.application || !authStore.user) return;
 
   try {
-    await api.applications.disqualifyApplication(
+    await api.applicationStorage.disqualifyApplication(
       disqualifyModal.value.application._id,
       disqualificationReason.value,
       authStore.user.id
     );
 
     // Reload flagged applications to update the UI
+    console.log("Disqualifying application, refreshing tables...");
+    await loadFlaggedApplications();
+
+    // Force a small delay to ensure backend has processed the change
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Reload again to make sure we have the latest data
     await loadFlaggedApplications();
 
     closeDisqualifyModal();
@@ -1563,7 +1723,7 @@ const removeApplicationFlag = async (applicationId: string) => {
   }
 
   try {
-    await api.applications.removeFlag(applicationId, authStore.user.id);
+    await api.applicationStorage.removeFlag(applicationId, authStore.user.id);
 
     // Reload flagged applications to update the UI
     await loadFlaggedApplications();
@@ -1622,8 +1782,30 @@ const loadEventData = async () => {
 
     const eventData = await api.eventDirectory.getEventById(eventId);
     const event = Array.isArray(eventData) ? eventData[0] : eventData;
+    console.log("Event data received:", event);
+    console.log("Event endDate:", event?.endDate);
+    console.log("Event requiredReadsPerApp:", event?.requiredReadsPerApp);
+
     if (event) {
       eventName.value = event.name;
+
+      // Format endDate for datetime-local input (YYYY-MM-DDTHH:MM)
+      if (event.endDate) {
+        const date = new Date(event.endDate);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        eventEndDate.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        console.log("Formatted endDate for input:", eventEndDate.value);
+      } else {
+        eventEndDate.value = "";
+      }
+
+      requiredReadsPerApp.value = event.requiredReadsPerApp || 3;
+      console.log("Set eventEndDate to:", eventEndDate.value);
+      console.log("Set requiredReadsPerApp to:", requiredReadsPerApp.value);
       currentEventRubric.value = event.rubric || [];
       eventQuestions.value = event.questions || [];
 
@@ -1664,6 +1846,27 @@ const loadEventData = async () => {
     }
   } catch (err) {
     console.error("Failed to load event data:", err);
+  }
+};
+
+const saveEventSettings = async () => {
+  if (!currentEventId.value || !authStore.user) return;
+
+  try {
+    savingSettings.value = true;
+
+    // Update the event with new settings
+    await api.eventDirectory.updateEvent(currentEventId.value, {
+      endDate: eventEndDate.value,
+      requiredReadsPerApp: requiredReadsPerApp.value,
+    });
+
+    alert("Event settings saved successfully!");
+  } catch (err) {
+    console.error("Failed to save event settings:", err);
+    alert("Failed to save event settings. Please try again.");
+  } finally {
+    savingSettings.value = false;
   }
 };
 
@@ -1793,7 +1996,89 @@ onMounted(async () => {
   font-size: 1.5rem;
   font-weight: 700;
   margin: 0 0 1.5rem 0;
-  text-align: center;
+  text-align: left;
+  border-bottom: 2px solid var(--accent-primary);
+  padding-bottom: 0.5rem;
+}
+
+/* Event Settings Styling */
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.setting-title {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  padding-bottom: 0.25rem;
+  border-bottom: 2px solid var(--accent-primary);
+  display: inline-block;
+}
+
+.input-wrapper {
+  position: relative;
+}
+
+.styled-input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 2px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.styled-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1);
+  background: var(--bg-primary);
+}
+
+.styled-input:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-primary);
+}
+
+.setting-description {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin: 0;
+  font-style: italic;
+  padding-left: 0.5rem;
+}
+
+.settings-actions {
+  margin-top: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.validation-message {
+  color: var(--error-color, #e74c3c);
+  font-size: 0.875rem;
+  margin: 0;
+  font-weight: 500;
+}
+
+.btn-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .users-container {
@@ -2839,22 +3124,46 @@ onMounted(async () => {
   border-bottom: 2px solid var(--border-medium);
 }
 
+.flagged-table .table-header {
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
 .disqualified-table .table-header {
-  grid-template-columns: 1fr 2fr 1fr 1fr;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 1.5rem;
 }
 
 .flagged-table .table-row,
 .disqualified-table .table-row {
   display: grid;
-  grid-template-columns: 1fr 2fr 1fr 1fr 1fr;
-  gap: 1rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
   padding: 1rem;
   border-bottom: 1px solid var(--border-light);
   align-items: center;
 }
 
 .disqualified-table .table-row {
-  grid-template-columns: 1fr 2fr 1fr 1fr;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 1.5rem;
+}
+
+.flagged-table .applicant-id,
+.flagged-table .flagged-by,
+.disqualified-table .applicant-id,
+.disqualified-table .disqualification-reason,
+.disqualified-table .disqualified-by {
+  text-align: left;
+}
+
+.flagged-table .actions,
+.disqualified-table .actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  justify-content: flex-start;
 }
 
 .flagged-table .table-row:hover,

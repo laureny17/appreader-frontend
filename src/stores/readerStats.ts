@@ -32,16 +32,20 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
     error.value = null;
 
     try {
-      // Get reader stats and skip stats from the backend
-      const [backendStats, skipStats] = await Promise.allSettled([
-        api.readerStats.getReaderStats(eventId),
-        api.applicationAssignments.getSkipStatsForEvent(eventId),
-      ]);
+      // Get reader stats, skip stats, and verified readers from the backend
+      const [backendStats, skipStats, verifiedReaders] =
+        await Promise.allSettled([
+          api.readerStats.getReaderStats(eventId),
+          api.applicationAssignments.getSkipStatsForEvent(eventId),
+          api.eventDirectory.getVerifiedReadersForEvent(eventId),
+        ]);
 
       const readerStatsData =
         backendStats.status === "fulfilled" ? backendStats.value : [];
       const skipStatsData =
         skipStats.status === "fulfilled" ? skipStats.value : [];
+      const verifiedReadersData =
+        verifiedReaders.status === "fulfilled" ? verifiedReaders.value : [];
 
       if (skipStats.status === "rejected") {
         console.warn(
@@ -52,7 +56,9 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
 
       // Transform backend data to frontend format
       const transformedStats: ReaderStat[] = [];
+      const processedUserIds = new Set<string>();
 
+      // First, process users who have stats
       for (const stat of readerStatsData) {
         try {
           // Get user name
@@ -74,6 +80,8 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
                 ? Math.round(stat.totalTime / stat.readCount)
                 : 0,
           });
+
+          processedUserIds.add(stat.userId);
         } catch (nameErr) {
           // If we can't get the name, use a fallback
           const userSkipData = skipStatsData.find(
@@ -91,6 +99,40 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
                 ? Math.round(stat.totalTime / stat.readCount)
                 : 0,
           });
+
+          processedUserIds.add(stat.userId);
+        }
+      }
+
+      // Then, add verified readers who don't have stats yet (0 stats)
+      for (const verifiedReader of verifiedReadersData) {
+        if (!processedUserIds.has(verifiedReader.user)) {
+          try {
+            // Get user name
+            const userName = await api.auth.getNameByUserId(
+              verifiedReader.user
+            );
+
+            transformedStats.push({
+              userId: verifiedReader.user,
+              name:
+                userName ||
+                verifiedReader.name ||
+                `User ${verifiedReader.user.slice(-4)}`,
+              readCount: 0,
+              skipCount: 0,
+              averageTime: 0,
+            });
+          } catch (nameErr) {
+            transformedStats.push({
+              userId: verifiedReader.user,
+              name:
+                verifiedReader.name || `User ${verifiedReader.user.slice(-4)}`,
+              readCount: 0,
+              skipCount: 0,
+              averageTime: 0,
+            });
+          }
         }
       }
 

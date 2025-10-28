@@ -34,11 +34,6 @@
           <p class="stat-number">{{ myStats.skipCount }}</p>
         </div>
         <div class="stat-card">
-          <h3>Average Time</h3>
-          <p class="stat-number">{{ Math.round(myStats.averageTime) }}s</p>
-          <p class="stat-label">per application</p>
-        </div>
-        <div class="stat-card">
           <h3>Progress</h3>
           <p class="stat-number">{{ Math.round(progressPercentage) }}%</p>
           <div class="progress-bar">
@@ -92,8 +87,7 @@
             <div class="reader-info">
               <div class="name">{{ reader.name }}</div>
               <div class="stats">
-                {{ reader.readCount }} reads • {{ reader.skipCount }} skips •
-                {{ Math.round(reader.averageTime) }}s avg
+                {{ reader.readCount }} reads • {{ reader.skipCount }} skips
               </div>
             </div>
           </div>

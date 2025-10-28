@@ -683,6 +683,86 @@ export const api = {
           importedBy,
         }),
       }),
+
+    getFlaggedApplications: (eventId: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          applicantID: string;
+          applicantYear: string;
+          answers: string[];
+          flaggedBy: string;
+          flaggedAt: string;
+          flagReason?: string;
+        }>
+      >("/ApplicationStorage/_getFlaggedApplications", {
+        method: "POST",
+        body: JSON.stringify({ event: eventId }),
+      }),
+
+    getDisqualifiedApplications: (eventId: string) =>
+      apiRequest<
+        Array<{
+          _id: string;
+          applicantID: string;
+          applicantYear: string;
+          answers: string[];
+          disqualifiedBy: string;
+          disqualifiedAt: string;
+          disqualificationReason?: string;
+        }>
+      >("/ApplicationStorage/_getDisqualifiedApplications", {
+        method: "POST",
+        body: JSON.stringify({ event: eventId }),
+      }),
+
+    disqualifyApplication: (
+      application: string,
+      reason: string,
+      disqualifiedBy: string
+    ) =>
+      apiRequest<{ success: boolean } | { error: string }>(
+        "/ApplicationStorage/_disqualifyApplication",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            application,
+            reason,
+            disqualifiedBy,
+            disqualifiedAt: new Date().toISOString(),
+          }),
+        }
+      ),
+
+    undisqualifyApplication: (
+      application: string,
+      undisqualifiedBy: string,
+      reason?: string
+    ) =>
+      apiRequest<{ success: boolean; message: string } | { error: string }>(
+        "/ApplicationStorage/_undisqualifyApplication",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            application,
+            undisqualifiedBy,
+            reason,
+          }),
+        }
+      ),
+
+    removeFlag: (application: string, removedBy: string) =>
+      apiRequest<{ success: boolean } | { error: string }>(
+        "/ApplicationStorage/_removeFlag",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            application,
+            removedBy,
+            removedAt: new Date().toISOString(),
+          }),
+        }
+      ),
   },
 
   // Reader Statistics endpoints
