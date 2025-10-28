@@ -80,3 +80,6 @@ public
 # Temporary folders
 tmp/
 temp/
+
+# Helper scripts
+scripts/
