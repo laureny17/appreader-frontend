@@ -528,6 +528,17 @@ export const api = {
         body: JSON.stringify({ user: userId }),
       }),
 
+    getActiveVerifiedEventsForUser: (userId: string) =>
+      apiRequest<
+        Array<{
+          event: string;
+          name: string;
+        }>
+      >("/EventDirectory/_getActiveVerifiedEventsForUser", {
+        method: "POST",
+        body: JSON.stringify({ user: userId }),
+      }),
+
     getEventById: (eventId: string) =>
       apiRequest<{
         _id: string;

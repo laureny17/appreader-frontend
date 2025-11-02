@@ -39,48 +39,29 @@ export const useEventsStore = defineStore("events", () => {
     error.value = null;
 
     try {
-      const response = await api.eventDirectory.getVerifiedEventsForUser(
+      // Use the new endpoint that returns only active verified events
+      const response = await api.eventDirectory.getActiveVerifiedEventsForUser(
         userId
       );
-      console.log("Verified events response:", response);
+      console.log("Active verified events response:", response);
 
-      // Convert the response format to match our Event interface
-      // The response already includes name, so we can use it directly
-      const events: Event[] = response.map((item) => ({
-        eventId: item.event,
-        name: item.name,
-        description: "", // Not available in this endpoint
-        startTime: 0, // Not available in this endpoint
-        endTime: 0, // Not available in this endpoint
-        // We'll need to fetch endDate separately if needed
-      }));
-
-      // If we need endDate, fetch it for each event
+      // Fetch full event details for each active verified event
       const eventsWithDetails: Event[] = [];
-      for (const event of events) {
+      for (const item of response) {
         try {
           const eventDetails = await api.eventDirectory.getEventById(
-            event.eventId
+            item.event
           );
           if (eventDetails) {
-            eventsWithDetails.push({
-              ...event,
-              endDate: eventDetails.endDate,
-              questions: eventDetails.questions,
-              rubric: eventDetails.rubric,
-              eligibilityCriteria: eventDetails.eligibilityCriteria,
-              requiredReadsPerApp: eventDetails.requiredReadsPerApp,
-              active: eventDetails.active,
-            });
-          } else {
-            eventsWithDetails.push(event);
+            // Use the full event details which includes _id and all required fields
+            eventsWithDetails.push(eventDetails);
           }
         } catch (eventErr) {
           console.warn(
-            `Failed to fetch details for event ${event.eventId}:`,
+            `Failed to fetch details for event ${item.event}:`,
             eventErr
           );
-          eventsWithDetails.push(event);
+          // Skip events where we can't fetch details rather than adding incomplete data
         }
       }
 
@@ -128,16 +109,17 @@ export const useEventsStore = defineStore("events", () => {
         requiredReadsPerApp,
         rubric
       );
-      const newEvent: Event = {
-        eventId: response.event,
-        name,
-        description: "", // Not available in new API
-        startTime: 0, // Not available in new API
-        endTime: 0, // Not available in new API
-      };
 
-      verifiedEvents.value.push(newEvent);
-      return newEvent;
+      // Fetch full event details to get all required fields
+      const fullEventDetails = await api.eventDirectory.getEventById(
+        response.event
+      );
+      if (!fullEventDetails) {
+        throw new ApiError("Failed to fetch created event details");
+      }
+
+      verifiedEvents.value.push(fullEventDetails);
+      return fullEventDetails;
     } catch (err) {
       const errorMessage =
         err instanceof ApiError ? err.message : "Failed to create event";
