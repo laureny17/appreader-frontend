@@ -1022,8 +1022,6 @@ const submitReview = async () => {
         );
       }
 
-      alert("Review updated successfully!");
-
       // Return to current assignment
       if (savedAssignment.value) {
         (applicationsStore as any).currentAssignment = savedAssignment.value;
@@ -1088,8 +1086,6 @@ const submitReview = async () => {
     // Load next application
     await loadApplicationData();
     await loadPreviousReads();
-
-    alert("Review submitted successfully!");
   } catch (err) {
     console.error("Failed to submit review:", err);
     alert(

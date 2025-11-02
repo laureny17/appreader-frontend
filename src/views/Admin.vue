@@ -167,6 +167,11 @@ const archiveEvent = async (eventId: string) => {
     const event = adminEventsStore.activeEvents.find((e) => e._id === eventId);
     if (!event || !authStore.user) return;
 
+    const confirmed = confirm(
+      `Are you sure you want to archive "${event.name}"?\n\nThis will set the event to inactive.`
+    );
+    if (!confirmed) return;
+
     await api.eventDirectory.inactivateEvent(authStore.user.id, event.name);
     await adminEventsStore.loadAllEvents(authStore.user.id); // Refresh the events list
     console.log("Event archived successfully");
@@ -182,6 +187,11 @@ const activateEvent = async (eventId: string) => {
       (e) => e._id === eventId
     );
     if (!event || !authStore.user) return;
+
+    const confirmed = confirm(
+      `Are you sure you want to activate "${event.name}"?\n\nThis will set the event to active.`
+    );
+    if (!confirmed) return;
 
     await api.eventDirectory.activateEvent(authStore.user.id, event.name);
     await adminEventsStore.loadAllEvents(authStore.user.id); // Refresh the events list
