@@ -197,13 +197,8 @@ const createScatterChart = () => {
   const chartData = readers.value.map((reader) => {
     let ratio;
     if (reader.skipCount === 0) {
-      // For users with no skips, cap at the maximum ratio of other users
-      const maxRatio = Math.max(
-        ...readers.value
-          .filter((r) => r.skipCount > 0)
-          .map((r) => r.readCount / r.skipCount)
-      );
-      ratio = Math.max(reader.readCount, maxRatio || 10); // Default to 10 if no other ratios exist
+      // For users with no skips, use read count as the ratio
+      ratio = reader.readCount;
     } else {
       ratio = reader.readCount / reader.skipCount;
     }
@@ -213,6 +208,7 @@ const createScatterChart = () => {
       y: ratio,
       label: reader.name,
       userId: reader.userId,
+      skipCount: reader.skipCount, // Store skipCount for tooltip
     };
   });
 
@@ -263,9 +259,11 @@ const createScatterChart = () => {
             },
             label: (context) => {
               const point = context.raw as any;
+              const ratioDisplay =
+                point.skipCount === 0 ? `${point.x}` : point.y.toFixed(1);
               return [
                 `Apps Read: ${point.x}`,
-                `Read/Skip Ratio: ${point.y.toFixed(1)}`,
+                `Read/Skip Ratio: ${ratioDisplay}`,
               ];
             },
           },
