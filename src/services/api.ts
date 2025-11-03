@@ -27,10 +27,16 @@ async function apiRequest<T = any>(
   };
 
   // Debug logging
+  let parsedBody = null;
+  try {
+    parsedBody = options.body ? JSON.parse(options.body as string) : null;
+  } catch (e) {
+    parsedBody = options.body;
+  }
   console.log("API Request:", {
     url,
     method: options.method || "GET",
-    body: options.body,
+    body: parsedBody,
   });
 
   try {
@@ -42,16 +48,49 @@ async function apiRequest<T = any>(
       ok: response.ok,
     });
 
+    // Check if response has content and get the content type before consuming
+    const contentType = response.headers.get("content-type");
+    const isJSON = contentType && contentType.includes("application/json");
+
     if (!response.ok) {
-      throw new ApiError(
-        `HTTP error! status: ${response.status}`,
-        response.status
-      );
+      // 504 Gateway Timeout typically means sync authentication failed
+      if (response.status === 504) {
+        throw new ApiError(
+          "Request timed out. This usually means authentication failed - you may not have permission to perform this action.",
+          response.status
+        );
+      }
+
+      // Try to extract error message from response body for better debugging
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        if (isJSON) {
+          const errorData = await response.json();
+          console.error("API Error Response:", errorData);
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          } else {
+            errorMessage = `${errorMessage}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          const text = await response.text();
+          console.error("API Error Response (non-JSON):", text);
+          if (text) {
+            errorMessage = `${errorMessage}: ${text}`;
+          }
+        }
+      } catch (parseError) {
+        // If we can't parse the error, use the default message
+        console.warn("Could not parse error response:", parseError);
+      }
+
+      throw new ApiError(errorMessage, response.status);
     }
 
-    // Check if response has content
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
+    // Handle successful response
+    if (!isJSON) {
       const text = await response.text();
       console.log("Non-JSON response:", text);
       throw new ApiError(`Invalid response format: ${text}`);
@@ -97,20 +136,20 @@ export const api = {
         body: JSON.stringify({ email, password }),
       }),
 
-    getAccountByUserId: (userId: string) =>
+    getAccountByUserId: (userId: string, caller: string) =>
       apiRequest<
         [{ _id: string; email: string; name: string; passwordHash: string }]
       >("/AuthAccounts/_getAccountByUserId", {
         method: "POST",
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ userId, caller }),
       }),
 
-    getAccountByEmail: (email: string) =>
+    getAccountByEmail: (email: string, caller: string) =>
       apiRequest<
         [{ _id: string; email: string; name: string; passwordHash: string }]
       >("/AuthAccounts/_getAccountByEmail", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, caller }),
       }),
 
     getNameByUserId: (userId: string) =>
@@ -237,12 +276,6 @@ export const api = {
       apiRequest("/ReviewRecords/updateReview", {
         method: "POST",
         body: JSON.stringify({ reviewId, item, user, newRating, newComment }),
-      }),
-
-    deleteReview: (reviewId: string, item: string, user: string) =>
-      apiRequest("/ReviewRecords/deleteReview", {
-        method: "POST",
-        body: JSON.stringify({ reviewId, item, user }),
       }),
 
     getReviewsForItem: (item: string) =>
@@ -458,18 +491,32 @@ export const api = {
         scaleMin: number;
         scaleMax: number;
       }>,
-      eligibilityCriteria?: string[]
-    ) =>
-      apiRequest("/EventDirectory/updateEventConfig", {
+      eligibilityCriteria?: string[],
+      questions?: string[],
+      endDate?: Date
+    ) => {
+      // Build body object, only including defined values
+      const body: Record<string, any> = { caller, event };
+      if (requiredReadsPerApp !== undefined) {
+        body.requiredReadsPerApp = requiredReadsPerApp;
+      }
+      if (rubric !== undefined) {
+        body.rubric = rubric;
+      }
+      if (eligibilityCriteria !== undefined) {
+        body.eligibilityCriteria = eligibilityCriteria;
+      }
+      if (questions !== undefined) {
+        body.questions = questions;
+      }
+      if (endDate !== undefined) {
+        body.endDate = endDate;
+      }
+      return apiRequest("/EventDirectory/updateEventConfig", {
         method: "POST",
-        body: JSON.stringify({
-          caller,
-          event,
-          requiredReadsPerApp,
-          rubric,
-          eligibilityCriteria,
-        }),
-      }),
+        body: JSON.stringify(body),
+      });
+    },
 
     addReader: (caller: string, event: string, user: string) =>
       apiRequest("/EventDirectory/addReader", {
@@ -677,7 +724,8 @@ export const api = {
         applicantYear: string;
         answers: string[];
       }>,
-      importedBy: string
+      importedBy: string,
+      caller: string
     ) =>
       apiRequest<{
         success: boolean;
@@ -692,10 +740,11 @@ export const api = {
           event,
           applications,
           importedBy,
+          caller,
         }),
       }),
 
-    getFlaggedApplications: (eventId: string) =>
+    getFlaggedApplications: (eventId: string, caller: string) =>
       apiRequest<
         Array<{
           _id: string;
@@ -708,10 +757,10 @@ export const api = {
         }>
       >("/ApplicationStorage/_getFlaggedApplications", {
         method: "POST",
-        body: JSON.stringify({ event: eventId }),
+        body: JSON.stringify({ event: eventId, caller }),
       }),
 
-    getDisqualifiedApplications: (eventId: string) =>
+    getDisqualifiedApplications: (eventId: string, caller: string) =>
       apiRequest<
         Array<{
           _id: string;
@@ -724,13 +773,14 @@ export const api = {
         }>
       >("/ApplicationStorage/_getDisqualifiedApplications", {
         method: "POST",
-        body: JSON.stringify({ event: eventId }),
+        body: JSON.stringify({ event: eventId, caller }),
       }),
 
     disqualifyApplication: (
       application: string,
       reason: string,
-      disqualifiedBy: string
+      disqualifiedBy: string,
+      caller: string
     ) =>
       apiRequest<{ success: boolean } | { error: string }>(
         "/ApplicationStorage/_disqualifyApplication",
@@ -741,6 +791,7 @@ export const api = {
             reason,
             disqualifiedBy,
             disqualifiedAt: new Date().toISOString(),
+            caller,
           }),
         }
       ),
@@ -748,6 +799,7 @@ export const api = {
     undisqualifyApplication: (
       application: string,
       undisqualifiedBy: string,
+      caller: string,
       reason?: string
     ) =>
       apiRequest<{ success: boolean; message: string } | { error: string }>(
@@ -757,12 +809,13 @@ export const api = {
           body: JSON.stringify({
             application,
             undisqualifiedBy,
+            caller,
             reason,
           }),
         }
       ),
 
-    removeFlag: (application: string, removedBy: string) =>
+    removeFlag: (application: string, removedBy: string, caller: string) =>
       apiRequest<{ success: boolean } | { error: string }>(
         "/ApplicationStorage/_removeFlag",
         {
@@ -771,6 +824,7 @@ export const api = {
             application,
             removedBy,
             removedAt: new Date().toISOString(),
+            caller,
           }),
         }
       ),
@@ -794,7 +848,7 @@ export const api = {
   // Admin endpoints
   admin: {
     checkAdminStatus: (userId: string) =>
-      apiRequest<{ isAdmin: boolean }>("/EventDirectory/_isAdmin", {
+      apiRequest<[{ isAdmin: boolean }]>("/EventDirectory/_isAdmin", {
         method: "POST",
         body: JSON.stringify({ user: userId }),
       }),
@@ -916,7 +970,8 @@ export const api = {
         applicantYear: string;
         answers: string[];
       }>,
-      importedBy: string
+      importedBy: string,
+      caller: string
     ) =>
       apiRequest<{
         success: boolean;
@@ -931,6 +986,7 @@ export const api = {
           event,
           applications,
           importedBy,
+          caller,
         }),
       }),
   },

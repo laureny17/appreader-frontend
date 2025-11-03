@@ -35,8 +35,10 @@
                 <div v-if="approvedReaders.length === 0" class="empty-state">
                   No approved readers yet
                 </div>
-                <div v-else-if="approvedReaders.length > 10" class="user-count">
-                  Showing 10 of {{ approvedReaders.length }}
+                <div v-else-if="approvedReaders.length > 0" class="user-count">
+                  Showing {{ Math.min(approvedReaders.length, 10) }} of {{ approvedReaders.length }} reader{{
+                    approvedReaders.length !== 1 ? "s" : ""
+                  }}
                 </div>
               </div>
             </div>
@@ -73,10 +75,12 @@
                   <span v-else>No unverified users</span>
                 </div>
                 <div
-                  v-else-if="filteredUnverifiedUsers.length > 10"
+                  v-else-if="filteredUnverifiedUsers.length > 0"
                   class="user-count"
                 >
-                  Showing 10 of {{ filteredUnverifiedUsers.length }}
+                  Showing {{ Math.min(filteredUnverifiedUsers.length, 10) }} of {{ filteredUnverifiedUsers.length }} user{{
+                    filteredUnverifiedUsers.length !== 1 ? "s" : ""
+                  }}
                 </div>
               </div>
             </div>
@@ -2098,6 +2102,15 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.user-count {
+  padding: 0.75rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  border-top: 1px solid var(--border-light);
+  margin-top: auto;
 }
 
 .user-item {

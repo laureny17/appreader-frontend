@@ -106,16 +106,19 @@ export const useAuthStore = defineStore("auth", () => {
       let isAdmin = false; // Default to false
 
       try {
-        const accountDetails = await api.auth.getAccountByUserId(response.user);
+        const accountDetails = await api.auth.getAccountByUserId(
+          response.user,
+          response.user
+        );
         console.log("Account details:", accountDetails);
 
-        // Handle object or null response
+        // Handle array response as per API spec
         if (
           accountDetails &&
-          typeof accountDetails === "object" &&
-          "name" in accountDetails
+          Array.isArray(accountDetails) &&
+          accountDetails.length > 0
         ) {
-          userName = accountDetails.name || email;
+          userName = accountDetails[0]?.name || email;
         }
       } catch (nameError) {
         console.warn("Could not fetch user name, using email:", nameError);
@@ -131,7 +134,8 @@ export const useAuthStore = defineStore("auth", () => {
         console.log("Checking admin status for user:", response.user);
         const adminStatus = await api.admin.checkAdminStatus(response.user);
         console.log("Admin status response:", adminStatus);
-        isAdmin = adminStatus.isAdmin;
+        // _isAdmin now returns an array: [{ isAdmin: boolean }]
+        isAdmin = adminStatus[0]?.isAdmin ?? false;
         console.log("Final admin status from API:", isAdmin);
       } catch (adminError) {
         console.error("Admin status check failed:", adminError);
@@ -194,11 +198,10 @@ export const useAuthStore = defineStore("auth", () => {
 
   const getNameByUserId = async (userId: string) => {
     try {
-      const response = await api.auth.getAccountByUserId(userId);
-      // Expecting array response as per API spec
-      return response && Array.isArray(response) && response.length > 0
-        ? response[0]?.name || ""
-        : "";
+      // Use _getNameByUserId which doesn't require caller (safe endpoint)
+      // But if we need full account details, we'd use getAccountByUserId with caller
+      const response = await api.auth.getNameByUserId(userId);
+      return response || "";
     } catch (err) {
       console.error("Failed to get user name:", err);
       return "";
