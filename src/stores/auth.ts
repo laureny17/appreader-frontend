@@ -36,10 +36,33 @@ export interface RubricDimension {
 }
 
 export const useAuthStore = defineStore("auth", () => {
-  const user = ref<User | null>(null);
+  // Load user from localStorage on initialization
+  const loadUserFromStorage = (): User | null => {
+    try {
+      const stored = localStorage.getItem("auth_user");
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (err) {
+      console.warn("Failed to load user from localStorage:", err);
+      localStorage.removeItem("auth_user");
+    }
+    return null;
+  };
+
+  const user = ref<User | null>(loadUserFromStorage());
   const isLoading = ref(false);
   const error = ref<string | null>(null);
-  const viewMode = ref<"admin" | "reader">("admin"); // Default to admin view for admins
+  const viewMode = ref<"admin" | "reader">(
+    (() => {
+      try {
+        const stored = localStorage.getItem("auth_viewMode");
+        return (stored as "admin" | "reader") || "admin";
+      } catch {
+        return "admin";
+      }
+    })()
+  );
 
   const isAuthenticated = computed(() => user.value !== null);
   const email = computed(() => user.value?.email || "");
@@ -52,11 +75,24 @@ export const useAuthStore = defineStore("auth", () => {
   const setUser = (userData: User) => {
     user.value = userData;
     error.value = null;
+    // Persist to localStorage
+    try {
+      localStorage.setItem("auth_user", JSON.stringify(userData));
+    } catch (err) {
+      console.warn("Failed to save user to localStorage:", err);
+    }
   };
 
   const clearUser = () => {
     user.value = null;
     error.value = null;
+    // Clear from localStorage
+    try {
+      localStorage.removeItem("auth_user");
+      localStorage.removeItem("auth_viewMode");
+    } catch (err) {
+      console.warn("Failed to clear auth from localStorage:", err);
+    }
   };
 
   const setError = (errorMessage: string) => {
@@ -162,6 +198,13 @@ export const useAuthStore = defineStore("auth", () => {
         console.log("Set viewMode to reader");
       }
 
+      // Persist view mode
+      try {
+        localStorage.setItem("auth_viewMode", viewMode.value);
+      } catch (err) {
+        console.warn("Failed to save viewMode to localStorage:", err);
+      }
+
       return userData;
     } catch (err) {
       console.error("Login error:", err);
@@ -182,11 +225,21 @@ export const useAuthStore = defineStore("auth", () => {
   const switchToAdminView = () => {
     if (isAdmin.value) {
       viewMode.value = "admin";
+      try {
+        localStorage.setItem("auth_viewMode", "admin");
+      } catch (err) {
+        console.warn("Failed to save viewMode to localStorage:", err);
+      }
     }
   };
 
   const switchToReaderView = () => {
     viewMode.value = "reader";
+    try {
+      localStorage.setItem("auth_viewMode", "reader");
+    } catch (err) {
+      console.warn("Failed to save viewMode to localStorage:", err);
+    }
   };
 
   const setAdminStatus = (isAdmin: boolean) => {
