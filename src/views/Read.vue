@@ -793,13 +793,21 @@ const loadComments = async () => {
     // Get author names for all comments - fetch all users at once if admin
     const authorIds = [...new Set(comments.map((c) => c.author))];
     const authorMap = new Map();
+    let allUsersFetched: Array<{ _id: string; name: string; email: string }> =
+      [];
 
     // Try to get all users at once if admin
     try {
-      const allUsers = await api.auth.getAllUsers(authStore.user.id);
-      console.log("Fetched all users:", allUsers);
-      allUsers.forEach((user) => {
-        authorMap.set(user._id, user.name);
+      allUsersFetched = await api.auth.getAllUsers(authStore.user.id);
+      console.log("Fetched all users:", allUsersFetched);
+      allUsersFetched.forEach((user) => {
+        // Use name, not email - make sure we have a valid name
+        if (user.name && !user.name.includes("@")) {
+          authorMap.set(user._id, user.name);
+        } else if (user.email) {
+          // If name is missing or is email, try email as fallback but prefer name lookup
+          authorMap.set(user._id, user.email);
+        }
       });
     } catch (err) {
       console.warn("Could not fetch all users:", err);
@@ -811,10 +819,11 @@ const loadComments = async () => {
 
     // Use authStore to get current user name if they're the author
     if (authStore.user && authorIds.includes(authStore.user.id)) {
-      authorMap.set(authStore.user.id, authStore.user.name);
-      console.log(
-        `Added current user ${authStore.user.id} -> ${authStore.user.name}`
-      );
+      const userName = authStore.user.name;
+      if (userName && !userName.includes("@")) {
+        authorMap.set(authStore.user.id, userName);
+        console.log(`Added current user ${authStore.user.id} -> ${userName}`);
+      }
     }
 
     // Fetch any remaining author names
@@ -824,7 +833,7 @@ const loadComments = async () => {
         try {
           const name = await api.auth.getNameByUserId(authorId);
           console.log(`Fetched name for ${authorId}:`, name);
-          if (name && name.trim()) {
+          if (name && name.trim() && !name.includes("@")) {
             authorMap.set(authorId, name);
             console.log(`Set author ${authorId} to name: ${name}`);
           } else {
@@ -832,7 +841,11 @@ const loadComments = async () => {
           }
         } catch (err) {
           console.error(`Could not fetch name for user ${authorId}:`, err);
-          // On error, keep the ID as fallback
+          // On error, try to get from already fetched users
+          const user = allUsersFetched.find((u) => u._id === authorId);
+          if (user && user.name && !user.name.includes("@")) {
+            authorMap.set(authorId, user.name);
+          }
         }
       } else {
         console.log(`Author ${authorId} already in map`);
@@ -843,13 +856,28 @@ const loadComments = async () => {
 
     console.log("Mapping comments with author map...");
     userComments.value = comments.map((comment) => {
-      const mappedName = authorMap.get(comment.author);
-      console.log(
-        `Comment author ${comment.author} -> ${mappedName || comment.author}`
-      );
+      let displayName = authorMap.get(comment.author);
+
+      // If we got an email or no name, try to get name from allUsersFetched
+      if (!displayName || displayName.includes("@")) {
+        const user = allUsersFetched.find((u) => u._id === comment.author);
+        if (user && user.name && !user.name.includes("@")) {
+          displayName = user.name;
+        } else if (user && user.email && !displayName) {
+          // Only use email as absolute last resort
+          displayName = user.email;
+        }
+      }
+
+      // Final fallback: use ID instead of email
+      if (!displayName || displayName.includes("@")) {
+        displayName = `User ${comment.author.substring(0, 8)}...`;
+      }
+
+      console.log(`Comment author ${comment.author} -> ${displayName}`);
       return {
         id: comment._id,
-        author: mappedName || comment.author,
+        author: displayName,
         text: comment.text,
         quotedSnippet: comment.quotedSnippet || "",
         timestamp: new Date(comment.timestamp),
