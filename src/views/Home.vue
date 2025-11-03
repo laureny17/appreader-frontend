@@ -10,6 +10,7 @@
     </div>
 
     <div v-else>
+      <button @click="goBackToEvents" class="back-btn">← Back to Events</button>
       <div class="countdown-section">
         <h2>READING ENDS IN</h2>
         <div class="countdown-timer">{{ countdownDisplay }}</div>
@@ -355,6 +356,10 @@ const startReading = () => {
   router.push("/read");
 };
 
+const goBackToEvents = () => {
+  router.push("/select-event");
+};
+
 const loadApplicationsCount = async (eventId: string) => {
   try {
     const applications = await api.applicationStorage.getApplicationsByEvent(
@@ -534,6 +539,22 @@ watch(
 
 .error p {
   color: #dc2626;
+}
+
+.back-btn {
+  margin-bottom: 1.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+  background: var(--bg-tertiary);
 }
 
 .countdown-section {

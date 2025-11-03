@@ -25,14 +25,14 @@
         <!-- Reader view navigation -->
         <template v-if="isAuthenticated && authStore.isReaderView">
           <router-link
-            v-if="hasSelectedEvent"
+            v-if="hasSelectedEvent && $route.name !== 'select-event'"
             to="/"
             class="nav-link"
             :class="{ active: $route.name === 'home' }"
             >HOME</router-link
           >
           <router-link
-            v-if="hasSelectedEvent"
+            v-if="hasSelectedEvent && $route.name !== 'select-event'"
             to="/read"
             class="nav-link"
             :class="{ active: $route.name === 'read' }"

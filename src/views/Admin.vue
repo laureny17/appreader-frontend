@@ -1,5 +1,6 @@
 <template>
   <div class="admin-page">
+    <button @click="goBack" class="back-btn">← Back to Events</button>
     <div class="admin-header">
       <h1>ADMIN DASHBOARD</h1>
     </div>
@@ -242,6 +243,10 @@ const router = useRouter();
 const authStore = useAuthStore();
 const adminEventsStore = useAdminEventsStore();
 const readerStatsStore = useReaderStatsStore();
+
+const goBack = () => {
+  router.push("/admin");
+};
 
 const activeEvents = computed(() => adminEventsStore.activeEvents);
 const inactiveEvents = computed(() => adminEventsStore.inactiveEvents);
@@ -501,6 +506,22 @@ onMounted(async () => {
   padding: 2rem;
   background: var(--bg-secondary);
   min-height: 100vh;
+}
+
+.back-btn {
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+  background: var(--bg-tertiary);
 }
 
 .admin-header {
