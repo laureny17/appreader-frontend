@@ -2084,12 +2084,14 @@ watch(
 }
 
 .comment-author {
+  display: block;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 0.25rem;
 }
 
 .comment-time {
+  display: block;
   font-size: 0.8rem;
   color: var(--text-muted);
 }
@@ -2339,8 +2341,6 @@ mark {
 }
 
 .comment-header {
-  display: flex;
-  justify-content: space-between;
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
 }
