@@ -46,6 +46,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useEventsStore } from "@/stores/events";
+import { api } from "@/services/api";
 
 const emit = defineEmits<{
   "event-selected": [event: any];
@@ -57,7 +58,21 @@ const eventsStore = useEventsStore();
 
 const isLoading = computed(() => eventsStore.isLoading);
 const error = computed(() => eventsStore.error);
-const name = computed(() => authStore.name);
+const displayName = ref<string>("");
+
+const name = computed(() => {
+  // If we have a fetched display name, use it
+  if (displayName.value && !displayName.value.includes("@")) {
+    return displayName.value;
+  }
+  // Otherwise check authStore.user?.name, but filter out emails
+  const userName = authStore.user?.name;
+  if (userName && !userName.includes("@") && userName.trim() !== "") {
+    return userName;
+  }
+  // Fallback
+  return "Reader";
+});
 const verifiedEvents = computed(() => eventsStore.verifiedEvents);
 
 const selectEvent = (event: any) => {
@@ -90,6 +105,29 @@ onMounted(async () => {
   if (!authStore.isAuthenticated) {
     router.push("/auth");
   } else {
+    // Fetch the actual name if the stored name is an email or missing
+    const currentName = authStore.user?.name;
+    if (
+      !currentName ||
+      currentName.includes("@") ||
+      currentName.trim() === ""
+    ) {
+      try {
+        const fetchedName = await api.auth.getNameByUserId(authStore.userId);
+        if (
+          fetchedName &&
+          !fetchedName.includes("@") &&
+          fetchedName.trim() !== ""
+        ) {
+          displayName.value = fetchedName;
+        }
+      } catch (err) {
+        console.warn("Could not fetch user name:", err);
+      }
+    } else {
+      displayName.value = currentName;
+    }
+
     try {
       await eventsStore.loadVerifiedEventsForUser(authStore.userId);
     } catch (err) {
