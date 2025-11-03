@@ -1007,26 +1007,167 @@ const flagApplication = async () => {
     // 🟩 If not flagged → FLAG
     console.log("Flagging application...");
 
-    // Use flagAndSkip with the current assignment
-    if (!applicationsStore.currentAssignment) {
-      throw new Error("No current assignment to flag");
+    // Get or verify the assignment for this application
+    let assignmentToUse: any = null;
+    const applicationToFlag = currentApp.value._id;
+
+    if (isViewingPreviousRead.value) {
+      // When viewing a previous read, we should use addRedFlag directly on the review
+      // instead of flagAndSkip (which requires an active assignment)
+      console.log(
+        "Flagging previous read - finding review for:",
+        applicationToFlag
+      );
+
+      try {
+        // Get the existing review for this application
+        const existingReview =
+          await api.reviewRecords.getUserScoresForApplication(
+            authStore.user.id,
+            applicationToFlag
+          );
+
+        if (existingReview?.review) {
+          // Use addRedFlag directly on the review - this doesn't require an assignment
+          console.log(
+            "Adding red flag to existing review:",
+            existingReview.review
+          );
+          await api.reviewRecords.addRedFlag(
+            authStore.user.id,
+            existingReview.review
+          );
+          isCurrentAppFlagged.value = true;
+          hasTouchedSliders.value = false;
+          // Clear all scores when flagging
+          rubricDimensions.value.forEach((criterion) => {
+            scores.value[criterion.name] = undefined;
+          });
+          await loadPreviousReads();
+          alert("Application flagged successfully!");
+          // Refresh the flag status
+          const isFlagged = await api.reviewRecords.hasUserFlaggedApplication(
+            authStore.user.id,
+            currentApp.value._id
+          );
+          isCurrentAppFlagged.value = isFlagged;
+          return; // Exit early - we're done flagging
+        } else {
+          // No review found - try to use flagAndSkip with an assignment if one exists
+          console.log("No review found, trying to find assignment...");
+          const assignments =
+            await api.applicationAssignments.getAssignmentsByApplication(
+              applicationToFlag
+            );
+          const userAssignment = assignments.find(
+            (a: any) => a.user === authStore.user?.id
+          );
+
+          if (userAssignment) {
+            assignmentToUse = {
+              _id: userAssignment.id,
+              user: authStore.user.id,
+              application: applicationToFlag,
+              event:
+                eventsStore.currentEvent?._id ||
+                applicationsStore.currentAssignment?.event ||
+                "",
+              startTime: userAssignment.timestamp
+                ? new Date(userAssignment.timestamp).toISOString()
+                : new Date().toISOString(),
+            };
+            console.log(
+              "Using assignment from previous read:",
+              assignmentToUse
+            );
+          } else {
+            throw new Error(
+              "No review or assignment found for this application. Cannot flag."
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Error flagging previous read:", err);
+        throw new Error(
+          "Could not flag this application. " +
+            (err instanceof Error ? err.message : "Please try again.")
+        );
+      }
+    } else {
+      // For current assignment, use the stored current assignment
+      assignmentToUse = applicationsStore.currentAssignment;
+
+      // Verify assignment matches the current application
+      if (
+        assignmentToUse &&
+        assignmentToUse.application !== currentApp.value._id
+      ) {
+        console.log(
+          "Current assignment doesn't match application, this shouldn't happen for current assignments"
+        );
+        throw new Error("Assignment mismatch. Please refresh and try again.");
+      }
+
+      // We must have a current assignment that matches the current application
+      if (!assignmentToUse) {
+        throw new Error(
+          "No active assignment found. Please get a new assignment first."
+        );
+      }
+
+      // Verify the assignment belongs to the user
+      if (assignmentToUse.user !== authStore.user.id) {
+        throw new Error(
+          "Assignment does not belong to you. Please get a new assignment."
+        );
+      }
+
+      // Double-check: assignment must match the current application
+      if (assignmentToUse.application !== currentApp.value._id) {
+        throw new Error(
+          "Assignment does not match the current application. Please refresh and try again."
+        );
+      }
     }
 
-    console.log(
-      "Using flagAndSkip with assignment:",
-      applicationsStore.currentAssignment
-    );
+    console.log("Using flagAndSkip with assignment:", assignmentToUse);
+    console.log("Assignment details:", {
+      _id: assignmentToUse._id,
+      user: assignmentToUse.user,
+      application: assignmentToUse.application,
+      event: assignmentToUse.event,
+      startTime: assignmentToUse.startTime,
+      currentAppId: currentApp.value._id,
+      matches: assignmentToUse.application === currentApp.value._id,
+    });
+
+    // Verify assignment structure matches what backend expects
+    if (
+      !assignmentToUse._id ||
+      !assignmentToUse.application ||
+      !assignmentToUse.user ||
+      !assignmentToUse.event
+    ) {
+      throw new Error(
+        "Assignment object is missing required fields. Please get a new assignment."
+      );
+    }
 
     try {
       const flagResult = await api.applicationAssignments.flagAndSkip(
         authStore.user.id,
         authStore.user.id,
-        applicationsStore.currentAssignment,
+        assignmentToUse,
         "Flagged for ineligibility"
       );
       console.log("Application flagged and skipped:", flagResult);
     } catch (err) {
       console.error("flagAndSkip failed:", err);
+      if (err instanceof Error && err.message.includes("timed out")) {
+        throw new Error(
+          "Backend request timed out. This might be a backend issue - check backend logs. The assignment might be invalid or the backend might be stuck."
+        );
+      }
       throw err;
     }
 
@@ -1036,33 +1177,49 @@ const flagApplication = async () => {
     rubricDimensions.value.forEach((criterion) => {
       scores.value[criterion.name] = undefined;
     });
+
     await loadPreviousReads();
 
-    // Automatically move to next application after flagging
-    try {
-      console.log("DEBUG: About to load next application...");
-      await loadApplicationData();
-      console.log(
-        "DEBUG: Loaded next application:",
-        currentApp.value?.applicantID
+    // Only move to next application if we're NOT viewing a previous read
+    // If viewing previous read, stay on that read after flagging
+    if (!isViewingPreviousRead.value) {
+      // Automatically move to next application after flagging current assignment
+      try {
+        console.log("DEBUG: About to load next application after flagging...");
+        await loadApplicationData();
+        console.log(
+          "DEBUG: Loaded next application:",
+          currentApp.value?.applicantID
+        );
+
+        // Reset flagging state for the new application
+        isCurrentAppFlagged.value = false;
+        hasTouchedSliders.value = false;
+
+        // Reset previous read state when moving to next application
+        isViewingPreviousRead.value = false;
+        tempApplication.value = null;
+        tempAIComments.value = [];
+
+        alert("Application flagged successfully! Moving to next application.");
+      } catch (err) {
+        // If no more applications, clear current application and show message
+        console.log("No more applications after flagging:", err);
+        applicationsStore.clearCurrentApplication();
+        alert(
+          "Application flagged successfully! No more applications available."
+        );
+      }
+    } else {
+      // We flagged a previous read - just refresh the previous reads list
+      // and update the flag status
+      alert("Application flagged successfully!");
+      // Refresh the flag status
+      const isFlagged = await api.reviewRecords.hasUserFlaggedApplication(
+        authStore.user.id,
+        currentApp.value._id
       );
-
-      // Reset flagging state for the new application
-      isCurrentAppFlagged.value = false;
-      hasTouchedSliders.value = false;
-
-      // Reset previous read state when moving to next application
-      isViewingPreviousRead.value = false;
-      tempApplication.value = null;
-      tempAIComments.value = [];
-
-      alert("Application flagged successfully! Moving to next application.");
-    } catch (err) {
-      // If no more applications, clear current application and show message
-      applicationsStore.clearCurrentApplication();
-      alert(
-        "Application flagged successfully! No more applications available."
-      );
+      isCurrentAppFlagged.value = isFlagged;
     }
   } catch (err) {
     console.error("Failed to flag/unflag:", err);

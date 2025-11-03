@@ -128,7 +128,9 @@ const requiredReadsPerReader = computed(() => {
   }
   if (!eventsStore.currentEvent || verifiedReadersCount.value === 0) return 0;
   const readsPerApp = eventsStore.currentEvent.requiredReadsPerApp;
-  return Math.ceil(
+  // Formula: floor((applications * readsPerApp) / verifiedReaders)
+  // Example: floor((15 * 5) / 5) = floor(75/5) = 15
+  return Math.floor(
     (readsPerApp * totalApplications.value) / verifiedReadersCount.value
   );
 });

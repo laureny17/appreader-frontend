@@ -962,6 +962,18 @@ const deleteCriterion = async (index: number) => {
 const approveUser = async (userId: string) => {
   if (!currentEventId.value || !authStore.user) return;
 
+  // Find the user to get their name for the confirmation
+  const user = unverifiedUsers.value.find((u) => u.id === userId);
+  const userName = user?.name || user?.email || "this user";
+
+  if (
+    !confirm(
+      `Are you sure you want to approve ${userName} as a reader for this event?`
+    )
+  ) {
+    return;
+  }
+
   try {
     await api.eventDirectory.addReader(
       authStore.user.id,
@@ -970,6 +982,7 @@ const approveUser = async (userId: string) => {
     );
     // Reload readers
     await loadReaders();
+    alert(`${userName} has been approved as a reader.`);
   } catch (err) {
     console.error("Failed to approve user:", err);
     alert("Failed to approve user. Please try again.");
@@ -979,6 +992,18 @@ const approveUser = async (userId: string) => {
 const removeReader = async (readerId: string) => {
   if (!currentEventId.value || !authStore.user) return;
 
+  // Find the reader to get their name for the confirmation
+  const reader = approvedReaders.value.find((r) => r.id === readerId);
+  const readerName = reader?.name || reader?.email || "this reader";
+
+  if (
+    !confirm(
+      `Are you sure you want to remove ${readerName} as a reader from this event?`
+    )
+  ) {
+    return;
+  }
+
   try {
     await api.eventDirectory.removeReader(
       authStore.user.id,
@@ -987,6 +1012,7 @@ const removeReader = async (readerId: string) => {
     );
     // Reload readers
     await loadReaders();
+    alert(`${readerName} has been removed as a reader.`);
   } catch (err) {
     console.error("Failed to remove reader:", err);
     alert("Failed to remove reader. Please try again.");
