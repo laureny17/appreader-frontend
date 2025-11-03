@@ -1,8 +1,8 @@
 <template>
   <div class="event-config-page">
+    <button @click="goBack" class="back-btn">← Back to Dashboard</button>
     <div class="config-header">
       <div class="header-left">
-        <button @click="goBack" class="back-btn">← Back to Events</button>
         <h1>{{ eventName }}</h1>
       </div>
     </div>
@@ -1980,6 +1980,7 @@ onMounted(async () => {
 }
 
 .back-btn {
+  margin-bottom: 1rem;
   padding: 0.5rem 1rem;
   background: var(--bg-primary);
   border: 1px solid var(--border-medium);

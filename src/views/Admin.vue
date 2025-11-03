@@ -1,6 +1,5 @@
 <template>
   <div class="admin-page">
-    <button @click="goBack" class="back-btn">← Back to Events</button>
     <div class="admin-header">
       <h1>ADMIN DASHBOARD</h1>
     </div>
