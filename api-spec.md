@@ -351,10 +351,11 @@
 
 ### POST /api/ApplicationAssignments/submitAndIncrement
 
-**Description:** Submits a completed assignment and increments the read count for that application.
+**Description:** Submits a completed assignment and increments the read count for that application. **NOTE: This endpoint is excluded and handled by backend syncs. The sync verifies that `caller === user` for security.**
 
 **Requirements:**
 
+- `caller` must match `user` (verified by backend sync).
 - The specified assignment exists and belongs to the user.
 
 **Effects:**
@@ -366,6 +367,7 @@
 
 **Request Body:**
 {
+"caller": "ID",
 "user": "ID",
 "assignment": {
 "\_id": "ID",
@@ -377,6 +379,8 @@
 "endTime": "Date",
 "activeTime": "number (optional)"
 }
+
+**Note:** The `caller` parameter represents the authenticated user making the HTTP request. It must match the `user` parameter.
 
 **Success Response Body (Action):**
 {
@@ -1387,10 +1391,11 @@
 
 ### POST /api/ApplicationAssignments/flagAndSkip
 
-**Description:** Flags an application and skips to the next one by creating a review record with a red flag.
+**Description:** Flags an application and skips to the next one by creating a review record with a red flag. **NOTE: This endpoint is excluded and handled by backend syncs. The sync verifies that `caller === user` for security.**
 
 **Requirements:**
 
+- `caller` must match `user` (verified by backend sync).
 - Assignment exists and belongs to the user.
 
 **Effects:**
@@ -1403,6 +1408,7 @@
 
 **Request Body:**
 {
+"caller": "ID",
 "user": "ID",
 "assignment": {
 "\_id": "ID",
@@ -1413,6 +1419,8 @@
 },
 "reason": "string (optional)"
 }
+
+**Note:** The `caller` parameter represents the authenticated user making the HTTP request. It must match the `user` parameter.
 
 **Success Response Body:**
 {
@@ -1683,10 +1691,11 @@
 
 ### POST /api/ReviewRecords/submitReview
 
-**Description:** Submits a new review for an application.
+**Description:** Submits a new review for an application. **NOTE: This endpoint is excluded and handled by backend syncs. The sync verifies that `caller === author` for security.**
 
 **Requirements:**
 
+- `caller` must match `author` (verified by backend sync).
 - Author has not already reviewed the application.
 
 **Effects:**
@@ -1695,11 +1704,14 @@
 
 **Request Body:**
 {
+"caller": "ID",
 "author": "ID",
 "application": "ID",
 "currentTime": "Date",
 "activeTime": "number (optional)"
 }
+
+**Note:** The `caller` parameter represents the authenticated user making the HTTP request. It must match the `author` parameter (the user submitting the review).
 
 **Success Response Body (Action):**
 {
@@ -1715,11 +1727,12 @@
 
 ### POST /api/ReviewRecords/setScore
 
-**Description:** Sets or updates a score for a criterion in a review.
+**Description:** Sets or updates a score for a criterion in a review. **NOTE: This endpoint is excluded and handled by backend syncs. The sync verifies that `caller === author` for security.**
 
 **Requirements:**
 
-- Author must be the review’s creator.
+- `caller` must match `author` (verified by backend sync).
+- Author must be the review's creator.
 
 **Effects:**
 
@@ -1727,11 +1740,14 @@
 
 **Request Body:**
 {
+"caller": "ID",
 "author": "ID",
 "review": "ID",
 "criterion": "string",
 "value": "number"
 }
+
+**Note:** The `caller` parameter represents the authenticated user making the HTTP request. It must match the `author` parameter.
 
 **Success Response Body (Action):**
 {
@@ -2142,11 +2158,11 @@
 
 ### POST /api/ReviewRecords/deleteReview
 
-**Description:** Deletes a review by its ID. Only the author of the review can delete it.
+**Description:** Deletes a review by its ID. Only the author of the review can delete it. **NOTE: This endpoint is excluded and handled by backend syncs. The sync verifies that `caller === user` for security.**
 
 **Requirements:**
 
-- User must be authenticated.
+- `caller` must match `user` (verified by backend sync).
 - User must be the author of the review being deleted.
 - Review ID must exist.
 
@@ -2158,9 +2174,12 @@
 
 **Request Body:**
 {
+"caller": "ID",
 "reviewId": "ID",
 "user": "ID"
 }
+
+**Note:** The `caller` parameter represents the authenticated user making the HTTP request. It must match the `user` parameter.
 
 **Success Response Body:**
 {

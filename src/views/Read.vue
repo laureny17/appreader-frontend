@@ -249,12 +249,14 @@ import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useEventsStore } from "@/stores/events";
 import { useApplicationsStore } from "@/stores/applications";
+import { useReaderStatsStore } from "@/stores/readerStats";
 import { api, ApiError } from "@/services/api";
 
 const router = useRouter();
 const authStore = useAuthStore();
 const eventsStore = useEventsStore();
 const applicationsStore = useApplicationsStore();
+const readerStatsStore = useReaderStatsStore();
 
 // Real data from API
 const currentReads = ref(0);
@@ -829,6 +831,7 @@ const skipApplication = async () => {
       // If there's an existing review, delete it
       if (existingReviewId.value && authStore.user) {
         await api.reviewRecords.deleteReview(
+          authStore.user.id,
           existingReviewId.value,
           authStore.user.id
         );
@@ -939,6 +942,7 @@ const flagApplication = async () => {
     try {
       const flagResult = await api.applicationAssignments.flagAndSkip(
         authStore.user.id,
+        authStore.user.id,
         applicationsStore.currentAssignment,
         "Flagged for ineligibility"
       );
@@ -1016,6 +1020,7 @@ const submitReview = async () => {
       for (const [criterionName, score] of Object.entries(scores.value)) {
         await api.reviewRecords.setScore(
           authStore.user.id,
+          authStore.user.id,
           existingReviewId.value,
           criterionName,
           Number(score)
@@ -1052,46 +1057,178 @@ const submitReview = async () => {
   }
 
   try {
-    // First submit the review
-    const review = await api.applications.submitReview(
-      authStore.user.id,
-      appId,
-      new Date().toISOString()
-    );
-
-    // Then set all the scores
-    for (const [criterionName, score] of Object.entries(scores.value)) {
-      await api.applications.setScore(
-        authStore.user.id,
-        review.review,
-        criterionName,
-        Number(score)
-      );
-    }
-
-    // Finally, submit and increment
     const activeTimeSeconds = Math.round(
       activeTimeTracker.value.totalActiveSeconds
     );
-    await api.applications.submitAndIncrement(
-      authStore.user.id,
-      applicationsStore.currentAssignment,
-      new Date().toISOString(),
-      activeTimeSeconds
-    );
 
-    currentReads.value++;
+    // Try to create a new review - the backend will tell us if one already exists
+    let reviewId: string;
+    try {
+      console.log("=== SUBMIT REVIEW START ===");
+      console.log("Application ID:", appId);
+      console.log("User ID (caller/author):", authStore.user.id);
+      console.log("Active time:", activeTimeSeconds);
+
+      const review = await api.applications.submitReview(
+        authStore.user.id,
+        authStore.user.id,
+        appId,
+        new Date().toISOString(),
+        activeTimeSeconds
+      );
+      reviewId = review.review;
+      console.log("=== Review created successfully:", reviewId, "===");
+
+      // Then set all the scores
+      console.log("Setting scores for review:", reviewId);
+      for (const [criterionName, score] of Object.entries(scores.value)) {
+        await api.applications.setScore(
+          authStore.user.id,
+          authStore.user.id,
+          reviewId,
+          criterionName,
+          Number(score)
+        );
+      }
+      console.log("All scores set successfully");
+
+      // Call submitAndIncrement to delete assignment and move forward
+      console.log("=== Calling submitAndIncrement ===");
+      console.log("Caller:", authStore.user.id);
+      console.log("Assignment:", applicationsStore.currentAssignment);
+      await api.applications.submitAndIncrement(
+        authStore.user.id,
+        authStore.user.id,
+        applicationsStore.currentAssignment,
+        new Date().toISOString(),
+        activeTimeSeconds
+      );
+      console.log("=== submitAndIncrement completed successfully ===");
+
+      // Increment counter for new reviews
+      currentReads.value++;
+    } catch (createErr: any) {
+      console.error("=== ERROR during review submission ===");
+      console.error("Error object:", createErr);
+      console.error("Error message:", createErr?.message);
+      console.error("Error status:", createErr?.status);
+      console.error("Error name:", createErr?.name);
+      console.error("Full error details:", JSON.stringify(createErr, null, 2));
+
+      // If review already exists (backend error), try to update it instead
+      const errorMsg = createErr?.message || "";
+      const isAlreadySubmitted =
+        errorMsg.includes("already submitted") ||
+        errorMsg.includes("already reviewed") ||
+        errorMsg.includes("Author has already submitted");
+
+      console.log("Is 'already submitted' error?", isAlreadySubmitted);
+
+      if (isAlreadySubmitted) {
+        console.log(
+          "Backend reports review already exists for this user, updating existing review..."
+        );
+
+        // Get the existing review
+        const existingScores =
+          await api.reviewRecords.getUserScoresForApplication(
+            authStore.user.id,
+            appId
+          );
+
+        if (existingScores?.review) {
+          reviewId = existingScores.review;
+          console.log("Found existing review:", reviewId);
+
+          // Mark as editable
+          await api.reviewRecords.editReview(authStore.user.id, reviewId);
+
+          // Update all the scores
+          for (const [criterionName, score] of Object.entries(scores.value)) {
+            await api.reviewRecords.setScore(
+              authStore.user.id,
+              authStore.user.id,
+              reviewId,
+              criterionName,
+              Number(score)
+            );
+          }
+          console.log("Existing review updated successfully");
+
+          // For existing reviews, we can't use submitAndIncrement because it internally
+          // calls submitReview which fails if review already exists.
+          // Use abandonAssignment to delete the assignment, but note this won't add
+          // user to readers set, so they may get reassigned (backend data issue).
+          if (applicationsStore.currentAssignment && eventsStore.currentEvent) {
+            try {
+              const eventId =
+                (eventsStore.currentEvent as any).eventId ||
+                (eventsStore.currentEvent as any)._id;
+              console.log("Abandoning assignment for existing review");
+              console.warn(
+                "⚠️  WARNING: User has a review but is not in readers set.",
+                "This is a backend data consistency issue.",
+                "User may be reassigned to this application."
+              );
+              await api.applications.abandonAssignment(
+                authStore.user.id,
+                eventId
+              );
+              console.log("Assignment abandoned successfully");
+            } catch (abandonErr) {
+              console.error(
+                "Failed to abandon assignment (may already be deleted):",
+                abandonErr
+              );
+              // Continue anyway - assignment might already be deleted
+            }
+          }
+        } else {
+          // This shouldn't happen - backend says review exists but we can't find it
+          console.error(
+            "Backend reported review already exists, but could not find it for update"
+          );
+          throw new Error(
+            "Backend reported review already exists, but could not find it for update. This may indicate a data inconsistency."
+          );
+        }
+      } else {
+        // Re-throw if it's a different error - let outer handler deal with it
+        console.error("=== DIFFERENT ERROR - NOT 'already submitted' ===");
+        console.error("This error will be re-thrown to outer handler");
+        console.error("Error type:", typeof createErr);
+        console.error("Error:", createErr);
+        throw createErr;
+      }
+    }
+
     activeTimeTracker.value.totalActiveSeconds = 0;
 
+    // Refresh reader stats to update progress bar
+    if (eventsStore.currentEvent) {
+      const eventId =
+        (eventsStore.currentEvent as any).eventId ||
+        (eventsStore.currentEvent as any)._id;
+      await readerStatsStore.loadReaderStats(eventId);
+    }
+
     // Load next application
+    console.log("=== About to load next application ===");
     await loadApplicationData();
     await loadPreviousReads();
+    console.log("=== Next application loaded successfully ===");
   } catch (err) {
-    console.error("Failed to submit review:", err);
-    alert(
-      "Failed to submit review: " +
-        (err instanceof Error ? err.message : "Please try again.")
-    );
+    console.error("=== OUTER ERROR HANDLER - Failed to submit review ===");
+    console.error("Error object:", err);
+    console.error("Error details:", JSON.stringify(err, null, 2));
+    const errorMessage =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+        ? err
+        : "Unknown error occurred";
+    console.error("Displaying alert with error:", errorMessage);
+    alert(`Failed to submit review: ${errorMessage}`);
   }
 };
 

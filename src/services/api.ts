@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 export interface ApiResponse<T = any> {
   data?: T;
@@ -17,7 +16,7 @@ async function apiRequest<T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${API_BASE}${endpoint}`;
 
   const defaultOptions: RequestInit = {
     headers: {
@@ -237,6 +236,7 @@ export const api = {
       ),
 
     flagAndSkip: (
+      caller: string,
       user: string,
       assignment: {
         _id: string;
@@ -249,7 +249,7 @@ export const api = {
     ) =>
       apiRequest<{ success: boolean }>("/ApplicationAssignments/flagAndSkip", {
         method: "POST",
-        body: JSON.stringify({ user, assignment, reason }),
+        body: JSON.stringify({ caller, user, assignment, reason }),
       }),
   },
 
@@ -402,6 +402,7 @@ export const api = {
       }),
 
     setScore: (
+      caller: string,
       author: string,
       review: string,
       criterion: string,
@@ -409,7 +410,7 @@ export const api = {
     ) =>
       apiRequest<{ application: string }>("/ReviewRecords/setScore", {
         method: "POST",
-        body: JSON.stringify({ author, review, criterion, value }),
+        body: JSON.stringify({ caller, author, review, criterion, value }),
       }),
 
     addRedFlag: (author: string, review: string) =>
@@ -430,12 +431,12 @@ export const api = {
         body: JSON.stringify({ user, application }),
       }),
 
-    deleteReview: (reviewId: string, user: string) =>
+    deleteReview: (caller: string, reviewId: string, user: string) =>
       apiRequest<{ success: true; message: string }>(
         "/ReviewRecords/deleteReview",
         {
           method: "POST",
-          body: JSON.stringify({ reviewId, user }),
+          body: JSON.stringify({ caller, reviewId, user }),
         }
       ),
   },
@@ -912,13 +913,26 @@ export const api = {
         body: JSON.stringify({ application: applicationId }),
       }),
 
-    submitReview: (author: string, application: string, currentTime: string) =>
+    submitReview: (
+      caller: string,
+      author: string,
+      application: string,
+      currentTime: string,
+      activeTime?: number
+    ) =>
       apiRequest<{ review: string }>("/ReviewRecords/submitReview", {
         method: "POST",
-        body: JSON.stringify({ author, application, currentTime }),
+        body: JSON.stringify({
+          caller,
+          author,
+          application,
+          currentTime,
+          ...(activeTime !== undefined && { activeTime }),
+        }),
       }),
 
     setScore: (
+      caller: string,
       author: string,
       review: string,
       criterion: string,
@@ -926,7 +940,7 @@ export const api = {
     ) =>
       apiRequest<{ application: string }>("/ReviewRecords/setScore", {
         method: "POST",
-        body: JSON.stringify({ author, review, criterion, value }),
+        body: JSON.stringify({ caller, author, review, criterion, value }),
       }),
 
     skipAssignment: (user: string, assignment: any) =>
@@ -935,7 +949,14 @@ export const api = {
         body: JSON.stringify({ user, assignment }),
       }),
 
+    abandonAssignment: (user: string, event: string) =>
+      apiRequest("/ApplicationAssignments/abandonAssignment", {
+        method: "POST",
+        body: JSON.stringify({ user, event }),
+      }),
+
     submitAndIncrement: (
+      caller: string,
       user: string,
       assignment: any,
       endTime: string,
@@ -946,10 +967,11 @@ export const api = {
         {
           method: "POST",
           body: JSON.stringify({
+            caller,
             user,
             assignment,
             endTime,
-            activeTimeSeconds: activeTimeSeconds || 0,
+            activeTime: activeTimeSeconds,
           }),
         }
       ),
