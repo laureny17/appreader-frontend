@@ -188,7 +188,7 @@ const eventData = ref({
     "Why do you want to attend this event?",
     "What's your biggest technical challenge?",
   ],
-  eligibilityCriteria: [],
+  eligibilityCriteria: [] as string[],
   rubric: [
     {
       name: "Technical Skill",

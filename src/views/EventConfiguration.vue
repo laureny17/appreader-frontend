@@ -1141,7 +1141,26 @@ const viewFlaggedApplication = async (applicationId: string) => {
     let app = flaggedApplications.value.find((a) => a._id === applicationId);
 
     if (!app) {
-      app = disqualifiedApplications.value.find((a) => a._id === applicationId);
+      const disqualifiedApp = disqualifiedApplications.value.find(
+        (a) => a._id === applicationId
+      );
+      if (disqualifiedApp) {
+        // Convert disqualified app to flagged app format for display
+        app = {
+          _id: disqualifiedApp._id,
+          applicantID: disqualifiedApp.applicantID,
+          applicantYear: disqualifiedApp.applicantYear,
+          answers: disqualifiedApp.answers,
+          flaggedBy: disqualifiedApp.disqualifiedBy,
+          flaggedAt: disqualifiedApp.disqualifiedAt,
+          flagReason: disqualifiedApp.disqualificationReason || "",
+          flaggedByName: disqualifiedApp.disqualifiedByName || "Unknown",
+          disqualified: true,
+          disqualificationReason: disqualifiedApp.disqualificationReason,
+          disqualifiedAt: disqualifiedApp.disqualifiedAt,
+          disqualifiedBy: disqualifiedApp.disqualifiedBy,
+        };
+      }
     }
 
     if (!app) {
@@ -1162,12 +1181,23 @@ const viewFlaggedApplication = async (applicationId: string) => {
     console.log("Reviews for flagged application:", reviews);
 
     // Get reviewer names for each review
-    const reviewsWithDetails = reviews.map((review) => {
-      return {
-        ...review,
-        reviewerName: review.reviewerName || "Unknown Reviewer",
-      };
-    });
+    const reviewsWithDetails = await Promise.all(
+      reviews.map(async (review) => {
+        let reviewerName = "Unknown Reviewer";
+        try {
+          reviewerName = await api.auth.getNameByUserId(review.author);
+        } catch (err) {
+          console.warn("Could not fetch reviewer name:", err);
+        }
+        return {
+          author: review.author,
+          authorName: reviewerName,
+          authorEmail: "", // Not available from this endpoint
+          submittedAt: review.submittedAt,
+          scores: review.scores,
+        };
+      })
+    );
 
     applicantReviews.value = reviewsWithDetails;
     console.log("Reviews with details:", applicantReviews.value);
@@ -1530,6 +1560,7 @@ const confirmImport = async () => {
     const result = await api.applications.bulkImportApplications(
       currentEventId.value,
       parsedData.value,
+      authStore.user.id,
       authStore.user.id
     );
 
@@ -1562,7 +1593,8 @@ const loadFlaggedApplications = async () => {
 
   try {
     const flagged = await api.applicationStorage.getFlaggedApplications(
-      currentEventId.value
+      currentEventId.value,
+      authStore.user.id
     );
     console.log("Flagged applications response:", flagged);
     console.log("Number of flagged applications:", flagged.length);
@@ -1598,7 +1630,8 @@ const loadFlaggedApplications = async () => {
     // Also load disqualified applications
     const disqualified =
       await api.applicationStorage.getDisqualifiedApplications(
-        currentEventId.value
+        currentEventId.value,
+        authStore.user.id
       );
     console.log("Disqualified applications response:", disqualified);
 
@@ -1678,6 +1711,7 @@ const undisqualifyApplication = async (applicationId: string) => {
     await api.applicationStorage.undisqualifyApplication(
       applicationId,
       authStore.user.id,
+      authStore.user.id,
       "Un-disqualified by admin"
     );
 
@@ -1698,6 +1732,7 @@ const confirmDisqualify = async () => {
     await api.applicationStorage.disqualifyApplication(
       disqualifyModal.value.application._id,
       disqualificationReason.value,
+      authStore.user.id,
       authStore.user.id
     );
 
@@ -1729,7 +1764,11 @@ const removeApplicationFlag = async (applicationId: string) => {
   }
 
   try {
-    await api.applicationStorage.removeFlag(applicationId, authStore.user.id);
+    await api.applicationStorage.removeFlag(
+      applicationId,
+      authStore.user.id,
+      authStore.user.id
+    );
 
     // Reload flagged applications to update the UI
     await loadFlaggedApplications();
@@ -1862,10 +1901,15 @@ const saveEventSettings = async () => {
     savingSettings.value = true;
 
     // Update the event with new settings
-    await api.eventDirectory.updateEvent(currentEventId.value, {
-      endDate: eventEndDate.value,
-      requiredReadsPerApp: requiredReadsPerApp.value,
-    });
+    await api.eventDirectory.updateEventConfig(
+      authStore.user.id,
+      currentEventId.value,
+      requiredReadsPerApp.value,
+      undefined, // rubric
+      undefined, // eligibilityCriteria
+      undefined, // questions
+      eventEndDate.value ? new Date(eventEndDate.value) : undefined
+    );
 
     alert("Event settings saved successfully!");
   } catch (err) {

@@ -18,9 +18,6 @@
     <div v-else class="dashboard-content">
       <div class="event-info">
         <h2>{{ eventsStore.currentEvent.name }}</h2>
-        <p v-if="eventsStore.currentEvent.description">
-          {{ eventsStore.currentEvent.description }}
-        </p>
       </div>
 
       <div class="stats-grid">
@@ -154,8 +151,7 @@ const refreshData = async () => {
   isRefreshing.value = true;
   try {
     // Load applications for the current event
-    const eventId =
-      eventsStore.currentEvent.eventId || eventsStore.currentEvent._id;
+    const eventId = eventsStore.currentEvent._id;
     await applicationsStore.loadApplicationsForEvent(eventId);
 
     // Load user progress to get required reads
@@ -174,13 +170,12 @@ const loadUserProgress = async () => {
   if (!authStore.user || !eventsStore.currentEvent) return;
 
   try {
-    const eventId =
-      eventsStore.currentEvent.eventId || eventsStore.currentEvent._id;
+    const eventId = eventsStore.currentEvent._id;
     const progress = await api.applications.getUserReviewProgress(
       authStore.user.id,
       eventId
     );
-    requiredReads.value = progress.requiredReads;
+    requiredReads.value = progress.totalNeeded;
   } catch (err) {
     console.error("Failed to load user progress:", err);
     requiredReads.value = 0;

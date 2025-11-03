@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed, readonly } from "vue";
 import { api, ApiError } from "@/services/api";
+import { useAuthStore } from "@/stores/auth";
 
 export interface ReviewRecord {
   record: string;
@@ -11,6 +12,7 @@ export interface ReviewRecord {
 }
 
 export const useReviewsStore = defineStore("reviews", () => {
+  const authStore = useAuthStore();
   const reviews = ref<ReviewRecord[]>([]);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
@@ -55,14 +57,14 @@ export const useReviewsStore = defineStore("reviews", () => {
     error.value = null;
 
     try {
-      const response = await api.reviewRecords.save(
+      const response = await api.reviewRecords.submitReview(
         applicationId,
         reviewerId,
         score,
         comment
       );
       const review: ReviewRecord = {
-        record: response.record,
+        record: response.reviewId,
         application: applicationId,
         reviewer: reviewerId,
         score,
@@ -85,11 +87,16 @@ export const useReviewsStore = defineStore("reviews", () => {
     error.value = null;
 
     try {
-      await api.reviewRecords.delete(applicationId, reviewerId);
+      // Find the review first to get its ID
       const review = reviews.value.find(
         (r) => r.application === applicationId && r.reviewer === reviewerId
       );
-      if (review) {
+      if (review && review.record && authStore.user) {
+        await api.reviewRecords.deleteReview(
+          authStore.user.id,
+          review.record,
+          reviewerId
+        );
         removeReview(review.record);
       }
     } catch (err) {
@@ -107,15 +114,18 @@ export const useReviewsStore = defineStore("reviews", () => {
     error.value = null;
 
     try {
-      const response = await api.reviewRecords.get(applicationId, reviewerId);
+      const response = await api.reviewRecords.getReviewsForItem(applicationId);
+      const userReview = response.find((r) => r.user === reviewerId);
       const review: ReviewRecord = {
-        record: "", // This endpoint doesn't return the record ID
+        record: userReview?.reviewId || "",
         application: applicationId,
         reviewer: reviewerId,
-        score: response[0]?.score || 0,
-        comment: response[0]?.comment || "",
+        score: userReview?.rating || 0,
+        comment: userReview?.comment || "",
       };
-      addReview(review);
+      if (userReview) {
+        addReview(review);
+      }
       return review;
     } catch (err) {
       const errorMessage =
@@ -132,13 +142,27 @@ export const useReviewsStore = defineStore("reviews", () => {
     error.value = null;
 
     try {
-      const response = await api.reviewRecords.listForApplication(
-        applicationId
-      );
+      const response = await api.reviewRecords.getReviewsForItem(applicationId);
       reviews.value = reviews.value.filter(
         (r) => r.application !== applicationId
       );
-      response.forEach((review) => addReview(review));
+      response.forEach(
+        (review: {
+          reviewId: string;
+          user: string;
+          rating: number;
+          comment: string;
+          timestamp: number;
+        }) => {
+          addReview({
+            record: review.reviewId,
+            application: applicationId,
+            reviewer: review.user,
+            score: review.rating,
+            comment: review.comment,
+          });
+        }
+      );
       return response;
     } catch (err) {
       const errorMessage =
@@ -157,9 +181,25 @@ export const useReviewsStore = defineStore("reviews", () => {
     error.value = null;
 
     try {
-      const response = await api.reviewRecords.listForReviewer(reviewerId);
+      const response = await api.reviewRecords.getReviewsByUser(reviewerId);
       reviews.value = reviews.value.filter((r) => r.reviewer !== reviewerId);
-      response.forEach((review) => addReview(review));
+      response.forEach(
+        (review: {
+          reviewId: string;
+          item: string;
+          rating: number;
+          comment: string;
+          timestamp: number;
+        }) => {
+          addReview({
+            record: review.reviewId,
+            application: review.item,
+            reviewer: reviewerId,
+            score: review.rating,
+            comment: review.comment,
+          });
+        }
+      );
       return response;
     } catch (err) {
       const errorMessage =

@@ -115,10 +115,7 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
 
             transformedStats.push({
               userId: verifiedReader.user,
-              name:
-                userName ||
-                verifiedReader.name ||
-                `User ${verifiedReader.user.slice(-4)}`,
+              name: userName || `User ${verifiedReader.user.slice(-4)}`,
               readCount: 0,
               skipCount: 0,
               averageTime: 0,
@@ -126,8 +123,7 @@ export const useReaderStatsStore = defineStore("readerStats", () => {
           } catch (nameErr) {
             transformedStats.push({
               userId: verifiedReader.user,
-              name:
-                verifiedReader.name || `User ${verifiedReader.user.slice(-4)}`,
+              name: `User ${verifiedReader.user.slice(-4)}`,
               readCount: 0,
               skipCount: 0,
               averageTime: 0,

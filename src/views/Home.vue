@@ -99,6 +99,7 @@ const readerStatsStore = useReaderStatsStore();
 
 const totalApplications = ref(0);
 const verifiedReadersCount = ref(0);
+const requiredReadsFromAPI = ref(0);
 const scatterChart = ref<HTMLCanvasElement | null>(null);
 let chartInstance: Chart | null = null;
 
@@ -119,7 +120,11 @@ const userReadCount = computed(() => currentUser.value?.readCount || 0);
 const userSkipCount = computed(() => currentUser.value?.skipCount || 0);
 const averageReadTime = computed(() => currentUser.value?.averageTime || 0);
 
+// Use API value if available, otherwise fall back to calculated value
 const requiredReadsPerReader = computed(() => {
+  if (requiredReadsFromAPI.value > 0) {
+    return requiredReadsFromAPI.value;
+  }
   if (!eventsStore.currentEvent || verifiedReadersCount.value === 0) return 0;
   const readsPerApp = eventsStore.currentEvent.requiredReadsPerApp;
   return Math.ceil(
@@ -374,6 +379,22 @@ const loadVerifiedReadersCount = async (eventId: string) => {
   }
 };
 
+const loadUserProgress = async (eventId: string) => {
+  if (!authStore.user) return;
+
+  try {
+    const progress = await api.applications.getUserReviewProgress(
+      authStore.user.id,
+      eventId
+    );
+    requiredReadsFromAPI.value = progress.totalNeeded;
+    console.log("User progress from API:", progress);
+  } catch (err) {
+    console.warn("Could not load user progress:", err);
+    requiredReadsFromAPI.value = 0;
+  }
+};
+
 const loadReaderStats = async () => {
   if (eventsStore.currentEvent) {
     const eventId = eventsStore.currentEvent._id;
@@ -383,6 +404,9 @@ const loadReaderStats = async () => {
 
     // Load verified readers count
     await loadVerifiedReadersCount(eventId);
+
+    // Load user progress from API (this gives us the correct totalNeeded value)
+    await loadUserProgress(eventId);
 
     // Use the working reader stats store method
     await readerStatsStore.loadReaderStats(eventId);

@@ -21,7 +21,15 @@
       </button>
     </div>
 
-    <div v-else-if="!currentApp" class="no-application">
+    <div
+      v-if="
+        !applicationsStore.isLoading &&
+        !applicationsStore.error &&
+        !currentApp &&
+        !isViewingPreviousRead
+      "
+      class="no-application"
+    >
       <p v-if="applicationsStore.applications.length === 0">
         No applications available to read.
       </p>
@@ -30,9 +38,22 @@
         All applications have been reviewed or there are no applications for
         this event.
       </p>
+      <p v-if="previousReads.length > 0" style="margin-top: 1rem; color: #666">
+        Use the dropdown below to view and edit your previous reviews.
+      </p>
     </div>
 
-    <div v-else class="read-content">
+    <div
+      v-if="
+        !applicationsStore.isLoading &&
+        !applicationsStore.error &&
+        (currentApp || isViewingPreviousRead)
+      "
+      class="read-content"
+      :key="`read-content-${
+        currentApp?._id || 'none'
+      }-${isViewingPreviousRead}`"
+    >
       <div v-if="isCurrentAppFlagged" class="flagged-notice">
         🚩 This application has been flagged
       </div>
@@ -40,8 +61,8 @@
         <h3>Scoring</h3>
         <div
           class="criterion"
-          v-for="criterion in rubricDimensions"
-          :key="criterion.id"
+          v-for="(criterion, index) in rubricDimensions"
+          :key="criterion.name + index"
         >
           <div class="criterion-header">
             <span class="criterion-name">{{ criterion.name }}</span>
@@ -172,11 +193,15 @@
           @change="loadPreviousRead"
           class="previous-select"
           ref="previousReadsSelect"
-          :disabled="
-            isViewingPreviousRead && !isCurrentAppFlagged && !allScoresSelected
-          "
+          :disabled="false"
         >
-          <option value="">Previous reads...</option>
+          <option value="">
+            {{
+              previousReads.length > 0
+                ? "Previous reads..."
+                : "No previous reads"
+            }}
+          </option>
           <option v-if="currentApp" :value="currentApp._id">
             {{
               isViewingPreviousRead
@@ -188,6 +213,13 @@
             {{ formatTime(read.timestamp) }}{{ read.isFlagged ? " 🚩" : "" }}
           </option>
         </select>
+        <div
+          v-if="previousReads.length === 0 && !applicationsStore.isLoading"
+          class="no-previous-reads-hint"
+          style="font-size: 0.8rem; color: #666; margin-top: 0.5rem"
+        >
+          No previous reads to display
+        </div>
       </div>
       <button @click="skipApplication" class="btn btn-skip">SKIP</button>
       <button @click="flagApplication" class="btn btn-danger">
@@ -248,9 +280,36 @@ import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useEventsStore } from "@/stores/events";
-import { useApplicationsStore } from "@/stores/applications";
+import {
+  useApplicationsStore,
+  type Application,
+  type AIComment,
+  type CurrentAssignment,
+} from "@/stores/applications";
 import { useReaderStatsStore } from "@/stores/readerStats";
 import { api, ApiError } from "@/services/api";
+
+interface RubricDimension {
+  name: string;
+  description: string;
+  scaleMin: number;
+  scaleMax: number;
+  guidelines?: string[];
+}
+
+interface UserComment {
+  id: string;
+  author: string;
+  text: string;
+  quotedSnippet: string;
+  timestamp: Date;
+}
+
+interface PreviousRead {
+  id: string;
+  timestamp: Date;
+  isFlagged: boolean;
+}
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -261,16 +320,16 @@ const readerStatsStore = useReaderStatsStore();
 // Real data from API
 const currentReads = ref(0);
 const requiredReads = ref(0);
-const rubricDimensions = ref([]);
-const scores = ref({});
-const userComments = ref([]);
+const rubricDimensions = ref<RubricDimension[]>([]);
+const scores = ref<Record<string, number | undefined>>({});
+const userComments = ref<UserComment[]>([]);
 const newComment = ref("");
 const showRubric = ref<string | null>(null);
-const previousReads = ref([]);
+const previousReads = ref<PreviousRead[]>([]);
 const isViewingPreviousRead = ref(false);
-const savedAssignment = ref<any>(null);
-const tempApplication = ref<any>(null);
-const tempAIComments = ref<any[]>([]);
+const savedAssignment = ref<CurrentAssignment | null>(null);
+const tempApplication = ref<Application | null>(null);
+const tempAIComments = ref<AIComment[]>([]);
 const existingReviewId = ref<string | null>(null);
 const hasExistingReview = ref(false);
 const isCurrentAppFlagged = ref(false);
@@ -288,9 +347,17 @@ const allScoresSelected = computed(() => {
 
 // Computed property to get current application
 const currentApp = computed(() => {
-  return isViewingPreviousRead.value && tempApplication.value
-    ? tempApplication.value
-    : applicationsStore.currentApplication;
+  const result =
+    isViewingPreviousRead.value && tempApplication.value
+      ? tempApplication.value
+      : applicationsStore.currentApplication;
+  console.log("currentApp computed:", {
+    isViewingPreviousRead: isViewingPreviousRead.value,
+    hasTempApp: !!tempApplication.value,
+    hasStoreApp: !!applicationsStore.currentApplication,
+    result: result ? result.applicantID : null,
+  });
+  return result;
 });
 
 // Computed property to get current AI comments
@@ -301,7 +368,7 @@ const currentAIComments = computed(() => {
 });
 
 // AI Comment highlighting and tooltips
-const hoveredAIComment = ref(null);
+const hoveredAIComment = ref<AIComment | null>(null);
 const tooltipPosition = ref({ top: "0px", left: "0px" });
 
 // Text selection for user comments
@@ -357,8 +424,15 @@ const loadApplicationData = async () => {
   console.log("Event ID:", eventId);
 
   try {
-    // Load rubric from current event
-    rubricDimensions.value = eventsStore.currentEvent.rubric || [];
+    // Load rubric from current event - create a shallow copy since the store's rubric is readonly
+    const rubric = eventsStore.currentEvent.rubric || [];
+    rubricDimensions.value = rubric.map((r) => ({
+      name: r.name,
+      description: r.description,
+      scaleMin: r.scaleMin,
+      scaleMax: r.scaleMax,
+      guidelines: r.guidelines ? [...r.guidelines] : undefined,
+    }));
 
     // Initialize scores - leave undefined until user selects
     scores.value = {};
@@ -387,7 +461,7 @@ const loadApplicationData = async () => {
         const answerDivs = document.querySelectorAll(".answer");
         if (applicationsStore.currentApplication?.answers) {
           applicationsStore.currentApplication.answers.forEach(
-            (answer, index) => {
+            (answer: string, index: number) => {
               if (answerDivs[index]) {
                 const highlightedHTML = formatAnswerWithHighlights(
                   answer,
@@ -403,9 +477,11 @@ const loadApplicationData = async () => {
     } catch (err) {
       console.error("No more assignments available:", err);
       applicationsStore.setError(
-        "No eligible applications available for assignment. If you are an admin, you may need to be added as a verified reader for this event, or there may be no applications in this event."
+        "No eligible applications available for assignment."
       );
       // Cannot set currentApplication since it's readonly - the store handles this internally
+      // Ensure previous reads are loaded even when there's no current assignment
+      await loadPreviousReads();
     }
 
     // Load review progress from API
@@ -422,8 +498,10 @@ const loadApplicationData = async () => {
       // Don't set error here, just skip
     }
 
-    // Load comments for this application
-    await loadComments();
+    // Load comments for this application (only if we have one)
+    if (applicationsStore.currentApplication) {
+      await loadComments();
+    }
   } catch (err) {
     console.error("Error loading application data:", err);
   }
@@ -451,7 +529,7 @@ const formatAnswerWithHighlights = (answer: string, answerIndex: number) => {
 
   const activeComments = currentAIComments.value;
   if (activeComments && activeComments.length > 0) {
-    activeComments.forEach((comment) => {
+    activeComments.forEach((comment: AIComment) => {
       const snippet = comment.quotedSnippet;
       if (snippet && highlightedAnswer.includes(snippet)) {
         const highlightClass = getCommentCategoryClass(comment.category);
@@ -617,7 +695,7 @@ const handleAIHighlightHover = (event: MouseEvent) => {
   currentHoveredSpan = target;
   const commentId = target.getAttribute("data-comment-id");
   const comment = applicationsStore.currentApplicationComments.find(
-    (c) => c._id === commentId
+    (c: AIComment) => c._id === commentId
   );
   if (comment) {
     hoveredAIComment.value = comment;
@@ -817,8 +895,8 @@ const getRubricDescription = (score: number) => {
   return descriptions[score - 1] || "";
 };
 
-const selectedCriterion = computed(() => {
-  if (!showRubric.value) return null;
+const selectedCriterion = computed<RubricDimension | undefined>(() => {
+  if (!showRubric.value) return undefined;
   return rubricDimensions.value.find(
     (criterion) => criterion.name === showRubric.value
   );
@@ -1028,18 +1106,17 @@ const submitReview = async () => {
       }
 
       // Return to current assignment
-      if (savedAssignment.value) {
-        (applicationsStore as any).currentAssignment = savedAssignment.value;
-        isViewingPreviousRead.value = false;
-        savedAssignment.value = null;
-        tempApplication.value = null;
-        tempAIComments.value = [];
-        existingReviewId.value = null;
-        isCurrentAppFlagged.value = false; // reset flag status
-        hasTouchedSliders.value = false; // reset slider touch status
-        await loadApplicationData();
-        await loadPreviousReads();
-      }
+      // Note: We can't directly set currentAssignment as it's readonly
+      // The assignment should be reloaded via loadApplicationData
+      isViewingPreviousRead.value = false;
+      savedAssignment.value = null;
+      tempApplication.value = null;
+      tempAIComments.value = [];
+      existingReviewId.value = null;
+      isCurrentAppFlagged.value = false; // reset flag status
+      hasTouchedSliders.value = false; // reset slider touch status
+      await loadApplicationData();
+      await loadPreviousReads();
       return;
     } catch (err) {
       alert(
@@ -1237,7 +1314,13 @@ const submitReview = async () => {
 const loadPreviousRead = async (event: Event) => {
   const target = event.target as HTMLSelectElement;
   const selectedId = target.value;
-  if (!selectedId) return;
+  console.log("loadPreviousRead called with selectedId:", selectedId);
+  console.log("currentApp:", currentApp.value);
+  console.log("previousReads:", previousReads.value);
+  if (!selectedId) {
+    console.log("No selectedId, returning");
+    return;
+  }
 
   // If selecting the current application while already viewing previous, toggle back to current
   if (selectedId === currentApp.value?._id && isViewingPreviousRead.value) {
@@ -1255,19 +1338,17 @@ const loadPreviousRead = async (event: Event) => {
   }
 
   // If selecting the current application while not viewing previous, do nothing
-  if (selectedId === currentApp.value?._id && !isViewingPreviousRead.value) {
+  if (
+    currentApp.value &&
+    selectedId === currentApp.value._id &&
+    !isViewingPreviousRead.value
+  ) {
     previousReadsSelect.value!.value = "";
     return;
   }
 
   try {
-    // Save current assignment if we're viewing a new previous read
-    if (!isViewingPreviousRead.value) {
-      savedAssignment.value = applicationsStore.currentAssignment;
-      isViewingPreviousRead.value = true;
-    }
-
-    // Load the application into temp storage
+    // Load the application into temp storage FIRST
     const appData = await api.applications.getApplication(selectedId);
     console.log("Fetched appData for previous:", appData);
 
@@ -1278,9 +1359,53 @@ const loadPreviousRead = async (event: Event) => {
       return;
     }
 
+    // Load rubric if not already loaded (needed for displaying previous reads)
+    if (rubricDimensions.value.length === 0 && eventsStore.currentEvent) {
+      const rubric = eventsStore.currentEvent.rubric || [];
+      rubricDimensions.value = rubric.map((r) => ({
+        name: r.name,
+        description: r.description,
+        scaleMin: r.scaleMin,
+        scaleMax: r.scaleMax,
+        guidelines: r.guidelines ? [...r.guidelines] : undefined,
+      }));
+    }
+
+    // Set tempApplication BEFORE setting isViewingPreviousRead so currentApp computed works
     tempApplication.value = app; // ensure reactivity kicks in
-    await nextTick(); // let DOM update before rendering
+
+    // Save current assignment if we're viewing a new previous read (only if we have one)
+    if (!isViewingPreviousRead.value && applicationsStore.currentAssignment) {
+      savedAssignment.value = applicationsStore.currentAssignment;
+    }
+
+    // Ensure loading state is false so template can render
+    if (applicationsStore.isLoading) {
+      applicationsStore.isLoading = false;
+    }
+
+    // Clear error state when viewing previous reads (error prevents template from rendering)
+    // The error from "No eligible applications" shouldn't block viewing previous reads
+    if (applicationsStore.error) {
+      applicationsStore.clearError();
+    }
+
+    // Now set isViewingPreviousRead after tempApplication is set
+    isViewingPreviousRead.value = true;
+
+    // Give Vue time to render the template
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 150)); // give Vue time to render
+
     console.log("Now displaying previous app:", tempApplication.value);
+    console.log("isViewingPreviousRead:", isViewingPreviousRead.value);
+    console.log("currentApp computed:", currentApp.value);
+    console.log("currentApp?.answers:", currentApp.value?.answers);
+    console.log(
+      "Template should show read-content:",
+      currentApp.value || isViewingPreviousRead.value
+    );
+    console.log("applicationsStore.isLoading:", applicationsStore.isLoading);
 
     // Load AI comments into temp storage
     tempAIComments.value =
@@ -1288,7 +1413,7 @@ const loadPreviousRead = async (event: Event) => {
 
     // Check if this is a flagged application
     const matchedRead = previousReads.value.find(
-      (r: any) => r.id === selectedId
+      (r: PreviousRead) => r.id === selectedId
     );
     isCurrentAppFlagged.value = matchedRead?.isFlagged || false;
 
@@ -1305,9 +1430,11 @@ const loadPreviousRead = async (event: Event) => {
         hasExistingReview.value = true;
 
         // Set scores to existing values
-        existingScores.scores.forEach((score: any) => {
-          scores.value[score.criterion] = score.value;
-        });
+        existingScores.scores.forEach(
+          (score: { criterion: string; value: number }) => {
+            scores.value[score.criterion] = score.value;
+          }
+        );
       } else {
         existingReviewId.value = null;
         hasExistingReview.value = false;
@@ -1349,19 +1476,60 @@ const loadPreviousRead = async (event: Event) => {
     // Load user comments for the selected application (loadComments will use currentApp.value)
     await loadComments();
 
-    // Refresh the answer display
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Wait for Vue to render the template with the new currentApp
+    await nextTick();
+
+    // Debug: Check template guard flags
+    console.log("Template guard flags", {
+      isLoading: applicationsStore.isLoading,
+      error: applicationsStore.error,
+      currentApp: !!currentApp.value,
+      isViewingPreviousRead: isViewingPreviousRead.value,
+    });
+
+    // Wait until .answer divs are actually in the DOM
+    await nextTick();
+    for (let retries = 0; retries < 20; retries++) {
+      const answerDivs = document.querySelectorAll(".answer");
+      if (answerDivs.length > 0) {
+        console.log(
+          `✅ Found ${answerDivs.length} answer divs after ${retries} retries`
+        );
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
     const answerDivs = document.querySelectorAll(".answer");
+    if (answerDivs.length === 0) {
+      console.warn(
+        "❌ Still no .answer divs found after retries — check v-if condition!"
+      );
+      console.log("isLoading:", applicationsStore.isLoading);
+      console.log("isViewingPreviousRead:", isViewingPreviousRead.value);
+      console.log("currentApp:", currentApp.value);
+      console.log(
+        "tempApplication.value?.answers:",
+        tempApplication.value?.answers
+      );
+      return;
+    }
+
+    console.log(
+      "✅ Found",
+      answerDivs.length,
+      "answer divs — injecting answers now"
+    );
     if (tempApplication.value?.answers) {
-      tempApplication.value.answers.forEach((answer: any, index: any) => {
+      tempApplication.value.answers.forEach((answer: string, index: number) => {
         if (answerDivs[index]) {
           const highlightedHTML = formatAnswerWithHighlights(answer, index);
           answerDivs[index].innerHTML = highlightedHTML;
+          console.log(`Set innerHTML for answer ${index}`);
         }
       });
     }
 
-    await loadComments();
     await nextTick();
     console.log("Rendered previous application answers and comments");
     // Do not reset dropdown here (removed: target.value = "";)
@@ -1376,17 +1544,27 @@ const loadPreviousReads = async () => {
     const eventId =
       (eventsStore.currentEvent as any).eventId ||
       (eventsStore.currentEvent as any)._id;
+    console.log("Loading previous reads for event:", eventId);
     const previousReviews = await api.reviewRecords.getUserReviewedApplications(
       authStore.user!.id,
       eventId
     );
-    previousReads.value = previousReviews.map((review: any) => ({
-      id: review.application,
-      timestamp: new Date(review.submittedAt),
-      isFlagged: review.isFlagged || false,
-    }));
+    console.log("Previous reviews from API:", previousReviews);
+    previousReads.value = previousReviews.map(
+      (review: {
+        application: string;
+        submittedAt: string;
+        isFlagged?: boolean;
+      }) => ({
+        id: review.application,
+        timestamp: new Date(review.submittedAt),
+        isFlagged: review.isFlagged || false,
+      })
+    );
+    console.log("Previous reads array:", previousReads.value);
   } catch (err) {
-    // Silently fail
+    console.error("Failed to load previous reads:", err);
+    previousReads.value = [];
   }
 };
 
@@ -1396,7 +1574,7 @@ onMounted(async () => {
   } else if (!eventsStore.currentEvent) {
     router.push("/select-event");
   } else {
-    // Load previous reads
+    // Load previous reads first, so dropdown works even when no new assignments
     await loadPreviousReads();
 
     await loadApplicationData();
@@ -1433,24 +1611,46 @@ onMounted(async () => {
 
 // Watch for changes in current application and update highlights
 watch(
-  () => applicationsStore.currentApplication,
-  () => {
-    if (applicationsStore.currentApplication?.answers) {
-      setTimeout(() => {
+  () => [currentApp.value, isViewingPreviousRead.value],
+  ([newApp, isViewingPrevious]) => {
+    if (newApp && typeof newApp !== "boolean" && newApp?.answers) {
+      // Use a retry mechanism since DOM might not be ready immediately
+      const trySetAnswers = (retries = 15) => {
         const answerDivs = document.querySelectorAll(".answer");
-        applicationsStore.currentApplication.answers.forEach(
-          (answer, index) => {
+        console.log(
+          "Watcher: Found",
+          answerDivs.length,
+          "answer divs for",
+          newApp.applicantID,
+          "retries left:",
+          retries
+        );
+
+        if (answerDivs.length === 0 && retries > 0) {
+          // DOM not ready yet, try again
+          setTimeout(() => trySetAnswers(retries - 1), 100);
+          return;
+        }
+
+        if (answerDivs.length > 0 && newApp && typeof newApp !== "boolean") {
+          newApp.answers.forEach((answer: string, index: number) => {
             if (answerDivs[index]) {
               const highlightedHTML = formatAnswerWithHighlights(answer, index);
-              console.log(
-                `Watcher: Setting innerHTML for answer ${index}:`,
-                highlightedHTML
-              );
+              console.log(`Watcher: Setting innerHTML for answer ${index}`);
               answerDivs[index].innerHTML = highlightedHTML;
+            } else {
+              console.warn(`Watcher: Answer div ${index} not found`);
             }
-          }
-        );
-      }, 100);
+          });
+        } else if (answerDivs.length === 0) {
+          console.warn("Watcher: No answer divs found after retries");
+        }
+      };
+
+      // Wait for Vue to render, then start retries
+      nextTick().then(() => {
+        setTimeout(() => trySetAnswers(), 150);
+      });
     }
   },
   { deep: true }

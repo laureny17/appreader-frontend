@@ -19,69 +19,32 @@
 
     <div v-else-if="application" class="detail-content">
       <div class="content-section">
-        <h2>Content</h2>
+        <h2>Application Details</h2>
         <div class="content-display">
-          <pre>{{ application.content }}</pre>
+          <p><strong>Applicant ID:</strong> {{ application.applicantID }}</p>
+          <p>
+            <strong>Applicant Year:</strong> {{ application.applicantYear }}
+          </p>
+          <h3>Answers</h3>
+          <div v-for="(answer, index) in application.answers" :key="index">
+            <p>
+              <strong>Q{{ index + 1 }}:</strong> {{ answer }}
+            </p>
+          </div>
         </div>
       </div>
 
       <div class="assignments-section">
         <h2>Assignments</h2>
-        <div v-if="application.assignments?.length === 0" class="empty-state">
-          <p>No assignments yet</p>
-        </div>
-        <div v-else class="assignments-list">
-          <div
-            v-for="assignment in application.assignments"
-            :key="assignment.assignment"
-            class="assignment-item"
-          >
-            <span>Reviewer: {{ assignment.reviewer }}</span>
-            <button
-              @click="unassignReviewer(assignment.reviewer)"
-              class="btn btn-sm btn-danger"
-            >
-              Unassign
-            </button>
-          </div>
+        <div class="empty-state">
+          <p>Assignment functionality not yet implemented</p>
         </div>
       </div>
 
       <div class="reviews-section">
         <h2>Reviews</h2>
-        <div v-if="application.reviews?.length === 0" class="empty-state">
-          <p>No reviews yet</p>
-        </div>
-        <div v-else class="reviews-list">
-          <div
-            v-for="review in application.reviews"
-            :key="review.record"
-            class="review-item"
-          >
-            <div class="review-header">
-              <span class="reviewer">Reviewer: {{ review.reviewer }}</span>
-              <span class="score">Score: {{ review.score }}/10</span>
-            </div>
-            <div class="review-comment">
-              <div class="comment-header">
-                <span class="comment-author">{{
-                  review.authorName || "Unknown User"
-                }}</span>
-                <span
-                  class="comment-type"
-                  :class="getCommentTypeClass(review.type)"
-                >
-                  {{ getCommentTypeLabel(review.type) }}
-                </span>
-              </div>
-              <div
-                class="comment-content"
-                :class="getCommentHighlightClass(review.type)"
-              >
-                <p>{{ review.comment }}</p>
-              </div>
-            </div>
-          </div>
+        <div class="empty-state">
+          <p>Review display functionality not yet implemented</p>
         </div>
       </div>
     </div>
@@ -101,7 +64,11 @@ const authStore = useAuthStore();
 
 const applicationId = computed(() => route.params.id as string);
 const application = computed(() =>
-  applicationsStore.applications.find((app) => app.id === applicationId.value)
+  applicationsStore.currentApplication?._id === applicationId.value
+    ? applicationsStore.currentApplication
+    : applicationsStore.applications.find(
+        (app) => app._id === applicationId.value
+      )
 );
 const isLoading = computed(() => applicationsStore.isLoading);
 const error = computed(() => applicationsStore.error);
@@ -109,8 +76,8 @@ const error = computed(() => applicationsStore.error);
 const loadApplication = async () => {
   try {
     await applicationsStore.loadApplication(applicationId.value);
-    await applicationsStore.loadAssignments(applicationId.value);
-    await applicationsStore.loadReviews(applicationId.value);
+    // Note: loadAssignments and loadReviews methods don't exist in the store
+    // These would need to be implemented or the UI updated to not rely on them
   } catch (err) {
     console.error("Failed to load application:", err);
   }
@@ -125,14 +92,9 @@ const editApplication = () => {
 };
 
 const unassignReviewer = async (reviewerId: string) => {
-  try {
-    await applicationsStore.unassignApplication(
-      applicationId.value,
-      reviewerId
-    );
-  } catch (err) {
-    console.error("Failed to unassign reviewer:", err);
-  }
+  // Note: unassignApplication method doesn't exist in the store
+  // This would need to be implemented
+  console.warn("Unassign functionality not yet implemented");
 };
 
 const getCommentTypeClass = (type: string) => {

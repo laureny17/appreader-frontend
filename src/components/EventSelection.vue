@@ -20,12 +20,11 @@
       <div v-else class="events-list">
         <div
           v-for="event in verifiedEvents"
-          :key="event.eventId"
+          :key="event._id"
           class="event-card"
           @click="selectEvent(event)"
         >
           <h3>{{ event.name }}</h3>
-          <p class="event-description">{{ event.description }}</p>
           <div class="event-dates">
             <span v-if="event.endDate" class="end-date">
               Reading ends: {{ formatEndDate(event.endDate) }}
