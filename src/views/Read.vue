@@ -130,10 +130,8 @@
         <h3>User Comments</h3>
         <div class="comment" v-for="comment in userComments" :key="comment.id">
           <div class="comment-header">
-            <span class="comment-author">{{ comment.author }}</span>
-            <span class="comment-time">{{
-              formatTime(comment.timestamp)
-            }}</span>
+            <div class="comment-author">{{ comment.author }}</div>
+            <div class="comment-time">{{ formatTime(comment.timestamp) }}</div>
           </div>
           <div class="comment-text">{{ comment.text }}</div>
           <div v-if="comment.quotedSnippet" class="quoted-snippet">
@@ -801,13 +799,12 @@ const loadComments = async () => {
       allUsersFetched = await api.auth.getAllUsers(authStore.user.id);
       console.log("Fetched all users:", allUsersFetched);
       allUsersFetched.forEach((user) => {
-        // Use name, not email - make sure we have a valid name
-        if (user.name && !user.name.includes("@")) {
+        // Use name, not email - make sure we have a valid name (not an email)
+        // Check if name exists and is not an email address
+        if (user.name && user.name.trim() && !user.name.includes("@")) {
           authorMap.set(user._id, user.name);
-        } else if (user.email) {
-          // If name is missing or is email, try email as fallback but prefer name lookup
-          authorMap.set(user._id, user.email);
         }
+        // Don't store email in the map - we'll fetch names individually if needed
       });
     } catch (err) {
       console.warn("Could not fetch all users:", err);
@@ -826,24 +823,43 @@ const loadComments = async () => {
       }
     }
 
-    // Fetch any remaining author names
+    // Fetch any remaining author names using getAccountByIdSafe for better name/email separation
     for (const authorId of authorIds) {
       if (!authorMap.has(authorId)) {
         console.log(`Fetching name for user ${authorId}...`);
         try {
-          const name = await api.auth.getNameByUserId(authorId);
-          console.log(`Fetched name for ${authorId}:`, name);
-          if (name && name.trim() && !name.includes("@")) {
-            authorMap.set(authorId, name);
-            console.log(`Set author ${authorId} to name: ${name}`);
+          // Try getAccountByIdSafe first as it explicitly returns name and email separately
+          const account = await api.auth.getAccountByIdSafe(authorId);
+          console.log(`Fetched account for ${authorId}:`, account);
+          if (
+            account &&
+            account.name &&
+            account.name.trim() &&
+            !account.name.includes("@")
+          ) {
+            authorMap.set(authorId, account.name);
+            console.log(`Set author ${authorId} to name: ${account.name}`);
           } else {
-            console.warn(`No name found for user ${authorId}, keeping ID`);
+            // Fallback to getNameByUserId
+            const name = await api.auth.getNameByUserId(authorId);
+            console.log(`Fetched name for ${authorId}:`, name);
+            if (name && name.trim() && !name.includes("@")) {
+              authorMap.set(authorId, name);
+              console.log(`Set author ${authorId} to name: ${name}`);
+            } else {
+              console.warn(`No valid name found for user ${authorId}`);
+            }
           }
         } catch (err) {
           console.error(`Could not fetch name for user ${authorId}:`, err);
           // On error, try to get from already fetched users
           const user = allUsersFetched.find((u) => u._id === authorId);
-          if (user && user.name && !user.name.includes("@")) {
+          if (
+            user &&
+            user.name &&
+            user.name.trim() &&
+            !user.name.includes("@")
+          ) {
             authorMap.set(authorId, user.name);
           }
         }
@@ -858,19 +874,32 @@ const loadComments = async () => {
     userComments.value = comments.map((comment) => {
       let displayName = authorMap.get(comment.author);
 
-      // If we got an email or no name, try to get name from allUsersFetched
-      if (!displayName || displayName.includes("@")) {
+      // If we still don't have a valid name (not an email), try to get from allUsersFetched
+      if (
+        !displayName ||
+        displayName.includes("@") ||
+        displayName.trim() === ""
+      ) {
         const user = allUsersFetched.find((u) => u._id === comment.author);
-        if (user && user.name && !user.name.includes("@")) {
+        if (user && user.name && user.name.trim() && !user.name.includes("@")) {
           displayName = user.name;
-        } else if (user && user.email && !displayName) {
-          // Only use email as absolute last resort
-          displayName = user.email;
+          console.log(
+            `Found name from allUsersFetched for ${comment.author}: ${displayName}`
+          );
         }
       }
 
-      // Final fallback: use ID instead of email
-      if (!displayName || displayName.includes("@")) {
+      // Final fallback: use ID instead of email - NEVER show email
+      // Check if displayName looks like an email (contains @ or is empty)
+      if (
+        !displayName ||
+        displayName.includes("@") ||
+        displayName.trim() === "" ||
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(displayName)
+      ) {
+        console.warn(
+          `Display name "${displayName}" looks like an email or is invalid for ${comment.author}, using fallback`
+        );
         displayName = `User ${comment.author.substring(0, 8)}...`;
       }
 
@@ -2049,9 +2078,15 @@ watch(
   font-style: italic;
 }
 
+.comment-header {
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0;
+}
+
 .comment-author {
   font-weight: 600;
   color: var(--text-primary);
+  margin-bottom: 0.25rem;
 }
 
 .comment-time {
