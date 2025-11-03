@@ -36,7 +36,8 @@
                   No approved readers yet
                 </div>
                 <div v-else-if="approvedReaders.length > 0" class="user-count">
-                  Showing {{ Math.min(approvedReaders.length, 10) }} of {{ approvedReaders.length }} reader{{
+                  Showing {{ Math.min(approvedReaders.length, 10) }} of
+                  {{ approvedReaders.length }} reader{{
                     approvedReaders.length !== 1 ? "s" : ""
                   }}
                 </div>
@@ -78,7 +79,8 @@
                   v-else-if="filteredUnverifiedUsers.length > 0"
                   class="user-count"
                 >
-                  Showing {{ Math.min(filteredUnverifiedUsers.length, 10) }} of {{ filteredUnverifiedUsers.length }} user{{
+                  Showing {{ Math.min(filteredUnverifiedUsers.length, 10) }} of
+                  {{ filteredUnverifiedUsers.length }} user{{
                     filteredUnverifiedUsers.length !== 1 ? "s" : ""
                   }}
                 </div>
